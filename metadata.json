@@ -1,0 +1,8 @@
+{
+  "name": "Remix: TeacherMada V2",
+  "description": "Le professeur de langue personnel, puissant et élégant pour maîtriser les langues rapidement.",
+  "icon": "https://i.ibb.co/B2XmRwmJ/logo.png",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
