@@ -9,21 +9,24 @@ import LegalModal from './LegalModals';
 import { getFlagUrl } from '../constants'; // Import du helper
 
 
+import { useTranslation } from '../contexts/LanguageContext';
+
 interface LandingPageProps {
   onStart: () => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
 }
 
-const WORDS = ["GRATUITEMENT", "INTELLIGEMMENT", "RAPIDEMENT", "NATURELLEMENT", "EFFICACEMENT"];
-
 const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTheme }) => {
+  const { t, language, setLanguage } = useTranslation();
   const [scrolled, setScrolled] = useState(false);
   const [wordIndex, setWordIndex] = useState(0);
   const [fadeKey, setFadeKey] = useState(0);
   const [dynamicLanguages, setDynamicLanguages] = useState<any[]>([]);
   const [activeLegal, setActiveLegal] = useState<'privacy' | 'terms' | null>(null);
   
+  const WORDS = t('landing.hero_words') || ["GRATUITEMENT", "INTELLIGEMMENT", "RAPIDEMENT", "NATURELLEMENT", "EFFICACEMENT"];
+
   // Stats State
   const [stats, setStats] = useState({ visitors: 14203, students: 850, lessons: 3900 });
 
@@ -135,6 +138,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           </div>
           
           <div className="flex gap-3 md:gap-4 items-center">
+              <div className="hidden sm:flex bg-slate-100 dark:bg-white/5 rounded-full p-1 border border-slate-200 dark:border-white/10">
+                  <button 
+                      onClick={() => setLanguage('fr')}
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'fr' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                  >
+                      FR
+                  </button>
+                  <button 
+                      onClick={() => setLanguage('mg')}
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'mg' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                  >
+                      MG
+                  </button>
+              </div>
               <button
                   onClick={toggleTheme}
                   className="p-2.5 rounded-full hover:bg-slate-200/50 dark:hover:bg-white/10 transition-all text-slate-500 dark:text-slate-400"
@@ -148,14 +165,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                       className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-full text-xs font-bold transition-colors animate-pulse border border-slate-300 dark:border-slate-600"
                   >
                      <Download className="w-4 h-4" />
-                     Installer l'App
+                     {t('landing.cta_install_app')}
                   </button>
               )}
               <button 
                   onClick={onStart}
                   className="px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
               >
-                  Commencer
+                  {t('common.start')}
               </button>
           </div>
         </div>
@@ -172,11 +189,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             <div className="text-center lg:text-left z-10">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 backdrop-blur-sm mb-6 animate-fade-in-up">
                     <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">Pédagogie 2.0</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">{t('landing.hero_badge')}</span>
                 </div>
                 
                 <h1 className="text-5xl md:text-6xl lg:text-7xl font-black mb-6 tracking-tight leading-[1.1] animate-fade-in-up delay-100 text-slate-900 dark:text-white">
-                    APPRENEZ <br/>
+                    {t('landing.hero_title_prefix')} <br/>
                     <span 
                         key={fadeKey}
                         className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-500 to-indigo-600 dark:from-indigo-400 dark:via-purple-400 dark:to-indigo-400 bg-300% animate-gradient inline-block"
@@ -186,8 +203,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 </h1>
                 
                 <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 mb-8 max-w-2xl mx-auto lg:mx-0 leading-relaxed font-medium animate-fade-in-up delay-200">
-                    Imaginez-vous parler Chinois, Anglais ou Allemand avec <span className="text-indigo-600 dark:text-indigo-400 font-bold">confiance dès le premier jour</span>. <br className="hidden md:block"/> 
-                    TeacherMada est votre professeur personnel : disponible 24/7, patient, et incroyablement efficace.
+                    {t('landing.hero_desc', { highlight: '{highlight}' }).split('{highlight}')[0]}
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{t('landing.hero_desc_highlight')}</span>
+                    {t('landing.hero_desc', { highlight: '{highlight}' }).split('{highlight}')[1]}
+                    <br className="hidden md:block"/> 
+                    {t('landing.hero_subdesc')}
                 </p>
                 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center animate-fade-in-up delay-300">
@@ -195,7 +215,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         onClick={onStart}
                         className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3"
                     >
-                        Créer mon compte gratuit
+                        {t('landing.cta_create_account')}
                         <ArrowRight className="w-5 h-5" />
                     </button>
                     
@@ -206,7 +226,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                           className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-[#131825] hover:bg-slate-50 dark:hover:bg-[#1A2030] text-slate-800 dark:text-white text-lg font-bold rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-all flex items-center justify-center gap-3 animate-bounce-slight"
                       >
                           <Download className="w-5 h-5 text-indigo-500" />
-                          Installer l'App
+                          {t('landing.cta_install_app')}
                       </button>
                     )}
                 </div>
@@ -233,7 +253,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                          {/* Chat Bubble 2 */}
                          <div className="absolute bottom-10 -left-16 bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-xl shadow-indigo-500/30 flex items-center gap-2 animate-bounce-slight delay-500 z-20">
                              <MessageCircle className="w-5 h-5" />
-                             <span className="font-bold text-sm">Prêt à apprendre ?</span>
+                             <span className="font-bold text-sm">{t('landing.mascot_bubble_1')}</span>
                          </div>
                     </div>
                 </div>
@@ -247,18 +267,18 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
               <StatWidget 
                   icon={<Globe className="w-6 h-6 text-blue-500" />} 
                   value={stats.visitors} 
-                  label="Visiteurs" 
+                  label={t('landing.stats_visitors')} 
                   live={true}
               />
               <StatWidget 
                   icon={<GraduationCap className="w-6 h-6 text-emerald-500" />} 
                   value={stats.students} 
-                  label="Étudiants Inscrits" 
+                  label={t('landing.stats_students')} 
               />
               <StatWidget 
                   icon={<BookOpen className="w-6 h-6 text-amber-500" />} 
                   value={stats.lessons} 
-                  label="Leçons Disponibles" 
+                  label={t('landing.stats_lessons')} 
               />
           </div>
       </section>
@@ -266,13 +286,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       {/* Languages Grid - Clickable */}
       <section className="py-12 bg-white dark:bg-[#0F1422] border-y border-slate-100 dark:border-slate-800/50">
           <div className="max-w-7xl mx-auto px-6">
-              <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Choisissez votre langue</p>
+              <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">{t('landing.choose_language')}</p>
               <div className="flex flex-wrap justify-center gap-4 md:gap-8">
                   {dynamicLanguages.slice(0, 8).map((lang, idx) => (
                       <LanguageBadge key={idx} flag={lang.flag} name={lang.baseName} onClick={onStart} />
                   ))}
                   <div onClick={onStart} className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm cursor-pointer opacity-70 hover:opacity-100">
-                      <span className="text-xs font-bold">Et + encore...</span>
+                      <span className="text-xs font-bold">{t('landing.more_languages')}</span>
                   </div>
               </div>
           </div>
@@ -291,11 +311,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
          <div className="max-w-7xl mx-auto px-6 relative z-10">
             <div className="text-center mb-16">
                 <h2 className="text-4xl md:text-5xl font-black leading-tight text-slate-900 dark:text-white mb-6">
-                    La Théorie <span className="text-indigo-600 dark:text-indigo-400">&</span> La Pratique.
+                    {t('landing.theory_practice_title')}
                 </h2>
                 <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed max-w-3xl mx-auto">
-                    D'un côté, des <strong>leçons structurées</strong> pour comprendre la mécanique de la langue. <br/>
-                    De l'autre, une <strong>communauté active</strong> et des exercices en temps réel pour pratiquer immédiatement.
+                    {t('landing.theory_practice_desc_1', { strong1: '{strong1}' }).split('{strong1}')[0]}
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{t('landing.theory_practice_desc_strong1')}</span>
+                    {t('landing.theory_practice_desc_1', { strong1: '{strong1}' }).split('{strong1}')[1]}
+                    <br/>
+                    {t('landing.theory_practice_desc_2', { strong2: '{strong2}' }).split('{strong2}')[0]}
+                    <span className="font-bold text-emerald-500 dark:text-emerald-400">{t('landing.theory_practice_desc_strong2')}</span>
+                    {t('landing.theory_practice_desc_2', { strong2: '{strong2}' }).split('{strong2}')[1]}
                 </p>
             </div>
 
@@ -307,8 +332,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         <div className="inline-block p-3 bg-white dark:bg-slate-800 rounded-full shadow-md mb-3">
                             <Layers className="w-6 h-6 text-indigo-500"/>
                         </div>
-                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">Cours Structurés</h3>
-                        <p className="text-sm text-slate-500">Comprendre avant de parler.</p>
+                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">{t('landing.structured_courses')}</h3>
+                        <p className="text-sm text-slate-500">{t('landing.understand_before_speaking')}</p>
                     </div>
 
                     <div className="relative transform hover:scale-[1.02] transition-all duration-500 cursor-default group w-full max-w-md">
@@ -319,23 +344,23 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                             
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                <h3 className="font-bold text-lg text-indigo-300">LEÇON 2 : Se Présenter</h3>
+                                <h3 className="font-bold text-lg text-indigo-300">{t('landing.lesson_example_title')}</h3>
                             </div>
 
                             {/* Section 1 */}
                             <div className="mb-4 space-y-2">
                                 <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-                                    <TargetIcon className="w-4 h-4" /> Tanjona (Objectif)
+                                    <TargetIcon className="w-4 h-4" /> {t('landing.lesson_objective_label')}
                                 </div>
                                 <p className="text-slate-300 text-xs leading-relaxed">
-                                    Apprendre à dire son nom et son origine en Mandarin de façon simple.
+                                    {t('landing.lesson_objective_text')}
                                 </p>
                             </div>
 
                             {/* Section 2 */}
                             <div className="mb-4 p-3 bg-slate-800 rounded-xl border border-slate-700">
                                 <div className="flex items-center gap-2 text-blue-400 font-bold text-sm mb-2">
-                                    <Layers className="w-4 h-4" /> Vocabulaire
+                                    <Layers className="w-4 h-4" /> {t('landing.lesson_vocab_label')}
                                 </div>
                                 <div className="space-y-2">
                                     <VocabItem word="我 (wǒ)" trans="Izaho" />
@@ -347,16 +372,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                              {/* Section 3 */}
                             <div className="p-3 bg-indigo-900/30 rounded-xl border border-indigo-500/30">
                                 <div className="flex items-center gap-2 text-yellow-400 font-bold text-sm mb-1">
-                                    <Star className="w-4 h-4" /> Pratique
+                                    <Star className="w-4 h-4" /> {t('landing.lesson_practice_label')}
                                 </div>
-                                <p className="text-xs text-indigo-200">Comment diriez-vous "Je m'appelle Alex" ?</p>
+                                <p className="text-xs text-indigo-200">{t('landing.lesson_practice_text')}</p>
                             </div>
                         </div>
 
                         {/* Floating Badge */}
                         <div className="absolute -top-4 -right-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-xl flex flex-col items-center gap-1 animate-bounce-slight z-20 border border-slate-100 dark:border-slate-700">
                             <span className="text-xl font-black text-indigo-600">A1</span>
-                            <span className="text-[8px] font-bold uppercase text-slate-500">Niveau</span>
+                            <span className="text-[8px] font-bold uppercase text-slate-500">{t('landing.level_label')}</span>
                         </div>
                     </div>
                 </div>
@@ -367,8 +392,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         <div className="inline-block p-3 bg-white dark:bg-slate-800 rounded-full shadow-md mb-3">
                             <MessageCircle className="w-6 h-6 text-emerald-500"/>
                         </div>
-                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">Pratique Réelle</h3>
-                        <p className="text-sm text-slate-500">La communauté progresse en direct.</p>
+                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">{t('landing.real_practice_title')}</h3>
+                        <p className="text-sm text-slate-500">{t('landing.real_practice_desc')}</p>
                     </div>
                     
                     <div className="w-full max-w-md h-full min-h-[400px]">
@@ -380,7 +405,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
 
             <div className="text-center mt-12">
                 <button onClick={onStart} className="px-10 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black rounded-2xl hover:scale-105 transition-transform shadow-2xl text-lg flex items-center gap-3 mx-auto">
-                    Essayer une leçon maintenant
+                    {t('landing.try_lesson_now')}
                     <ArrowRight className="w-5 h-5"/>
                 </button>
             </div>
@@ -405,8 +430,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             </div>
             
             <div className="flex gap-6 items-center">
-                <button onClick={() => setActiveLegal('terms')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Conditions</button>
-                <button onClick={() => setActiveLegal('privacy')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Confidentialité</button>
+                <button onClick={() => setActiveLegal('terms')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">{t('legal.terms')}</button>
+                <button onClick={() => setActiveLegal('privacy')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">{t('legal.privacy')}</button>
                 <a href="https://www.facebook.com/TeacherMadaFormation" target="_blank" className="text-slate-500 hover:text-blue-600 transition-colors">
                     <Facebook className="w-5 h-5" />
                 </a>

@@ -21,9 +21,7 @@ export const getTranslation = (lang: Language, key: string, params?: Record<stri
     }
   }
 
-  if (typeof value !== 'string') return key;
-
-  if (params) {
+  if (params && typeof value === 'string') {
     Object.entries(params).forEach(([k, v]) => {
       value = value.replace(`{${k}}`, String(v));
     });

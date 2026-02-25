@@ -18,7 +18,7 @@ interface LanguageOption {
 }
 
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleTheme }) => {
-  const { t } = useTranslation();
+  const { t, language, setLanguage } = useTranslation();
   const [step, setStep] = useState(1);
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({});
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
@@ -38,12 +38,15 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   }, []);
 
   const allLanguages = useMemo(() => {
-      const staticLangs = Object.values(TargetLanguage);
-      const formattedStatic: LanguageOption[] = staticLangs.map(l => ({
-          code: l as string,
-          baseName: (l as string).split(' ')[0],
-          flagUrl: getFlagUrl((l as string).split(' ')[0])
-      }));
+      const staticLangs = Object.entries(TargetLanguage);
+      const formattedStatic: LanguageOption[] = staticLangs.map(([key, value]) => {
+          const baseName = (value as string).split(' ')[0];
+          return {
+              code: value as string,
+              baseName: t(`languages.${key}`) || baseName,
+              flagUrl: getFlagUrl(baseName)
+          };
+      });
       
       const formattedCustom = customLangs.map(l => ({
           code: l.code,
@@ -52,7 +55,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
       }));
 
       return [...formattedStatic, ...formattedCustom];
-  }, [customLangs]);
+  }, [customLangs, t]);
 
   const availableLevels = useMemo(() => {
     if (prefs.targetLanguage && (prefs.targetLanguage as string).includes("Chinois")) {
@@ -91,6 +94,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   };
 
   const handleExplanationSelect = (lang: ExplanationLanguage) => {
+      // Sync app language with explanation language choice
+      const appLang = (lang as string).includes('Malagasy') ? 'mg' : 'fr';
+      setLanguage(appLang);
+
       const finalPrefs = { 
         ...prefs, 
         explanationLanguage: lang, 
@@ -122,9 +129,25 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300 relative font-sans">
-      <button onClick={toggleTheme} className="absolute top-5 right-5 p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer z-50">
-        {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
-      </button>
+      <div className="absolute top-5 right-5 flex items-center gap-3 z-50">
+        <div className="flex bg-white dark:bg-slate-900 rounded-full p-1 shadow-md border border-slate-100 dark:border-slate-800">
+            <button 
+                onClick={() => setLanguage('fr')}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${language === 'fr' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-indigo-600'}`}
+            >
+                FR
+            </button>
+            <button 
+                onClick={() => setLanguage('mg')}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${language === 'mg' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-indigo-600'}`}
+            >
+                MG
+            </button>
+        </div>
+        <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer">
+            {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+        </button>
+      </div>
 
       {step > 1 && (
         <button onClick={handleBack} className="absolute top-5 left-5 p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer z-50">
@@ -172,10 +195,13 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
               {availableLevels.map((levelCode) => {
                   const def = LEVEL_DEFINITIONS[levelCode] || { code: levelCode, title: levelCode };
+                  const levelKey = levelCode.replace(' ', '');
+                  const translatedTitle = t(`levels.${levelKey}.title`) || def.title;
+                  
                   return (
                     <button key={levelCode} onClick={() => handleLevelSelect(levelCode)} className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:scale-105 transition-all text-center flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800/50">
                       <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mb-1">{def.code}</div>
-                      <div className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-tight">{def.title.split(' /')[0]}</div>
+                      <div className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-tight">{translatedTitle.split(' /')[0]}</div>
                     </button>
                   );
               })}
@@ -192,13 +218,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <div className="animate-slide-up">
                 <div className="text-center mb-6">
                     <div className="inline-block px-4 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-black text-xl mb-4">{selectedLevelDesc.code}</div>
-                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{selectedLevelDesc.title}</h3>
-                    <p className="text-slate-600 dark:text-slate-300 italic">"{selectedLevelDesc.description}"</p>
+                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+                        {t(`levels.${selectedLevelDesc.code.replace(' ', '')}.title`) || selectedLevelDesc.title}
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-300 italic">
+                        "{t(`levels.${selectedLevelDesc.code.replace(' ', '')}.description`) || selectedLevelDesc.description}"
+                    </p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 mb-6">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{t('onboarding.skills_expected')}</h4>
                     <ul className="space-y-2 mb-6">
-                        {selectedLevelDesc.skills.map((skill, i) => (
+                        {(t(`levels.${selectedLevelDesc.code.replace(' ', '')}.skills`) || selectedLevelDesc.skills).map((skill: string, i: number) => (
                             <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
                                 {skill}
@@ -220,10 +250,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">{t('onboarding.explanation_language')}</h2>
             <p className="text-slate-500 dark:text-slate-400 mb-8">{t('onboarding.explanation_desc')}</p>
             <div className="grid grid-cols-2 gap-4">
-              {Object.values(ExplanationLanguage).map((lang) => (
-                <button key={lang} onClick={() => handleExplanationSelect(lang)} className="p-6 border dark:border-slate-700 rounded-2xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex flex-col items-center justify-center text-center group">
-                  <img src={getFlagUrl((lang as string).split(' ')[0])} alt={lang} className="w-12 h-auto mb-4 group-hover:scale-110 transition-transform shadow-md rounded" />
-                  <span className="font-bold text-slate-700 dark:text-slate-200">{(lang as string).split(' ')[0]}</span>
+              {Object.entries(ExplanationLanguage).map(([key, value]) => (
+                <button key={key} onClick={() => handleExplanationSelect(value)} className="p-6 border dark:border-slate-700 rounded-2xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex flex-col items-center justify-center text-center group">
+                  <img src={getFlagUrl((value as string).split(' ')[0])} alt={value} className="w-12 h-auto mb-4 group-hover:scale-110 transition-transform shadow-md rounded" />
+                  <span className="font-bold text-slate-700 dark:text-slate-200">{t(`languages.${key}`) || (value as string).split(' ')[0]}</span>
                 </button>
               ))}
             </div>

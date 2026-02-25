@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Phone, X, MessageCircle, Sparkles, Check, Award, Star, ShieldCheck, Play, Pause, BarChart3, Zap, Brain, ArrowRight, Linkedin, Share2 } from 'lucide-react';
+import { Mic, Phone, X, MessageCircle, Sparkles, Check, Award, Star, ShieldCheck, Play, Pause, BarChart3, Zap, Brain, ArrowRight, Linkedin, Share2, Target as TargetIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from '../contexts/LanguageContext';
 
 // --- 1. Live Voice Call Section ---
 export const LiveVoiceSection = ({ onStart }: { onStart: () => void }) => {
+  const { t } = useTranslation();
   const [isCalling, setIsCalling] = useState(true);
   const [duration, setDuration] = useState(0);
 
@@ -31,16 +33,14 @@ export const LiveVoiceSection = ({ onStart }: { onStart: () => void }) => {
         {/* Text Content */}
         <div className="order-2 lg:order-1">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-bold uppercase tracking-wider mb-6">
-            <Mic className="w-3 h-3" /> Live Conversation
+            <Mic className="w-3 h-3" /> {t('landing_sections.live_badge')}
           </div>
           <h2 className="text-4xl md:text-5xl font-black mb-6 leading-tight">
-            Parlez. <br/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">On vous écoute.</span>
+            {t('landing_sections.live_title')} <br/>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">{t('landing_sections.live_subtitle')}</span>
           </h2>
           <p className="text-lg text-slate-400 mb-8 leading-relaxed">
-            Plus de scénarios rigides. Discutez naturellement avec TeacherMada. 
-            Il comprend votre accent, corrige vos fautes en temps réel et s'adapte à votre niveau.
-            C'est comme avoir un prof natif dans votre poche.
+            {t('landing_sections.live_desc')}
           </p>
           
           <button 
@@ -49,7 +49,7 @@ export const LiveVoiceSection = ({ onStart }: { onStart: () => void }) => {
           >
             <span className="relative z-10 flex items-center gap-2">
               <Mic className="w-5 h-5 text-indigo-600" />
-              Essayer un appel maintenant
+              {t('landing_sections.live_cta')}
             </span>
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-50 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
           </button>
@@ -68,7 +68,7 @@ export const LiveVoiceSection = ({ onStart }: { onStart: () => void }) => {
                    <div className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-4 border-slate-900 rounded-full"></div>
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-1">TeacherMada</h3>
-                <p className="text-indigo-400 font-medium animate-pulse">Appel en cours...</p>
+                <p className="text-indigo-400 font-medium animate-pulse">{t('landing_sections.live_call_status')}</p>
                 <p className="text-slate-500 text-sm mt-1 font-mono">{formatTime(duration)}</p>
               </div>
 
@@ -127,6 +127,7 @@ export const LiveVoiceSection = ({ onStart }: { onStart: () => void }) => {
 
 // --- 2. Dynamic Dialogues Section ---
 export const DynamicDialoguesSection = () => {
+  const { t } = useTranslation();
   const [visibleMessages, setVisibleMessages] = useState<number>(0);
   
   // Scénario : Anglais Pro avec explications Malagasy
@@ -138,12 +139,16 @@ export const DynamicDialoguesSection = () => {
     },
     { 
       role: 'ai', 
-      text: "Attention au passé ! 🕒 On dit : \"I **sent** the report yesterday.\"",
+      text: t('language') === 'mg' 
+        ? "Tandremo ny lasa (Past) ! 🕒 Lazaina hoe : \"I **sent** the report yesterday.\""
+        : "Attention au passé ! 🕒 On dit : \"I **sent** the report yesterday.\"",
       isCorrection: true
     },
     { 
       role: 'ai', 
-      text: "Ny 'send' dia irregular verb. Lasa 'sent' izy rehefa amin'ny lasa (Past Simple). 📝",
+      text: t('language') === 'mg'
+        ? "Ny 'send' dia irregular verb. Lasa 'sent' izy rehefa amin'ny lasa (Past Simple). 📝"
+        : "Le verbe 'send' est irrégulier. Il devient 'sent' au passé (Past Simple). 📝",
       isExplanation: true
     },
     { 
@@ -152,7 +157,9 @@ export const DynamicDialoguesSection = () => {
     },
     { 
       role: 'ai', 
-      text: "Tsara be ! (Excellent !) C'est beaucoup plus professionnel. 🌟" 
+      text: t('language') === 'mg'
+        ? "Tsara be ! (Excellent !) Tena matihanina kokoa izany. 🌟"
+        : "Tsara be ! (Excellent !) C'est beaucoup plus professionnel. 🌟" 
     }
   ];
 
@@ -176,24 +183,37 @@ export const DynamicDialoguesSection = () => {
         {/* Left: Value Proposition */}
         <div className="text-left">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-6">
-            <Sparkles className="w-3 h-3" /> Intelligence Artificielle Avancée
+            <Sparkles className="w-3 h-3" /> {t('landing_sections.dialogue_badge')}
           </div>
           
           <h2 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6 leading-tight">
-            Plus qu'une app.<br/>
-            <span className="text-indigo-600 dark:text-indigo-400">Un vrai tuteur privé.</span>
+            {t('landing_sections.dialogue_title')}<br/>
+            <span className="text-indigo-600 dark:text-indigo-400">{t('landing_sections.dialogue_subtitle')}</span>
           </h2>
           
           <p className="text-lg text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-            Ne vous contentez pas de répéter des phrases. <strong>TeacherMada</strong> analyse votre grammaire, corrige vos erreurs et vous explique les nuances <span className="text-indigo-600 dark:text-indigo-400 font-bold">en Malagasy</span>.
+            {t('landing_sections.dialogue_desc', { 
+                strong: '{strong}',
+                highlight: '{highlight}'
+            }).split('{strong}')[0]}
+            <strong>{t('landing_sections.dialogue_desc_strong')}</strong>
+            {t('landing_sections.dialogue_desc', { 
+                strong: '{strong}',
+                highlight: '{highlight}'
+            }).split('{strong}')[1].split('{highlight}')[0]}
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{t('landing_sections.dialogue_desc_highlight')}</span>
+            {t('landing_sections.dialogue_desc', { 
+                strong: '{strong}',
+                highlight: '{highlight}'
+            }).split('{highlight}')[1]}
           </p>
 
           <ul className="space-y-4 mb-10">
             {[
-              "Corrections instantanées et précises",
-              "Explications claires en Malagasy",
-              "Adapté au contexte professionnel",
-              "Disponible 24h/24 et 7j/7"
+              t('landing_sections.dialogue_list_1'),
+              t('landing_sections.dialogue_list_2'),
+              t('landing_sections.dialogue_list_3'),
+              t('landing_sections.dialogue_list_4')
             ].map((item, i) => (
               <li key={i} className="flex items-center gap-3 text-slate-700 dark:text-slate-300 font-medium">
                 <div className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
@@ -205,7 +225,7 @@ export const DynamicDialoguesSection = () => {
           </ul>
 
           <button className="group px-8 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all flex items-center gap-3">
-            Commencer maintenant
+            {t('landing_sections.dialogue_cta')}
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </button>
         </div>
@@ -226,7 +246,7 @@ export const DynamicDialoguesSection = () => {
               <div>
                 <h3 className="font-bold text-lg text-slate-900 dark:text-white">TeacherMada</h3>
                 <p className="text-xs text-indigo-500 font-medium flex items-center gap-1">
-                  Typing...
+                  {t('landing_sections.dialogue_typing')}
                 </p>
               </div>
             </div>
@@ -293,7 +313,7 @@ export const DynamicDialoguesSection = () => {
              </div>
              <div>
                 <p className="font-black text-slate-900 dark:text-white">100%</p>
-                <p className="text-xs font-bold text-slate-500 uppercase">Précision</p>
+                <p className="text-xs font-bold text-slate-500 uppercase">{t('landing_sections.dialogue_precision')}</p>
              </div>
           </div>
 
@@ -306,6 +326,7 @@ export const DynamicDialoguesSection = () => {
 
 // --- 3. Immersive Animation Section ---
 export const ImmersiveActionSection = () => {
+  const { t } = useTranslation();
   return (
     <section className="py-24 bg-white dark:bg-[#0F1422] relative overflow-hidden">
        <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 items-center">
@@ -344,29 +365,29 @@ export const ImmersiveActionSection = () => {
 
           <div>
               <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white mb-8">
-                  La Méthode <span className="text-indigo-600">TeacherMada</span>
+                  {t('landing_sections.method_title')} <span className="text-indigo-600">{t('landing_sections.method_subtitle')}</span>
               </h2>
               
               <div className="space-y-8">
                   <div className="flex gap-4 group">
                       <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 font-bold text-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">1</div>
                       <div>
-                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Immersion Totale</h3>
-                          <p className="text-slate-600 dark:text-slate-400">Vous parlez dès la première seconde. Pas de théorie ennuyeuse, que de la pratique.</p>
+                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">{t('landing_sections.method_1_title')}</h3>
+                          <p className="text-slate-600 dark:text-slate-400">{t('landing_sections.method_1_desc')}</p>
                       </div>
                   </div>
                   <div className="flex gap-4 group">
                       <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-900/20 flex items-center justify-center text-purple-600 font-bold text-xl group-hover:bg-purple-600 group-hover:text-white transition-colors">2</div>
                       <div>
-                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Analyse Intelligente Temps Réel</h3>
-                          <p className="text-slate-600 dark:text-slate-400">Notre moteur analyse votre prononciation, grammaire et vocabulaire instantanément.</p>
+                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">{t('landing_sections.method_2_title')}</h3>
+                          <p className="text-slate-600 dark:text-slate-400">{t('landing_sections.method_2_desc')}</p>
                       </div>
                   </div>
                   <div className="flex gap-4 group">
                       <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-600 font-bold text-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors">3</div>
                       <div>
-                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Progression Continue</h3>
-                          <p className="text-slate-600 dark:text-slate-400">Le cours s'adapte à vos lacunes. Chaque minute passée est optimisée pour vous faire avancer.</p>
+                          <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">{t('landing_sections.method_3_title')}</h3>
+                          <p className="text-slate-600 dark:text-slate-400">{t('landing_sections.method_3_desc')}</p>
                       </div>
                   </div>
               </div>
@@ -395,6 +416,7 @@ export const ImmersiveActionSection = () => {
 
 // --- 4. Exam & Certificate Section ---
 export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
+  const { t } = useTranslation();
   return (
     <section className="py-20 md:py-32 bg-[#0B0F19] relative overflow-hidden">
        {/* Background Glow - Magical Atmosphere */}
@@ -408,15 +430,16 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
           
           <div className="text-center mb-12 md:mb-20">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-6 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              <Award className="w-3 h-3 md:w-4 md:h-4" /> Certification Officielle
+              <Award className="w-3 h-3 md:w-4 md:h-4" /> {t('landing_sections.cert_badge')}
             </div>
             
             <h2 className="text-4xl md:text-6xl font-black text-white mb-6 tracking-tight leading-tight">
-               Prouvez votre <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 animate-gradient bg-300%">Excellence</span>.
+               {t('landing_sections.cert_title')} <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 animate-gradient bg-300%">{t('landing_sections.cert_title_highlight')}</span>.
             </h2>
             <p className="text-base md:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
-               Ne dites plus juste que vous parlez une langue. <strong className="text-white">Prouvez-le.</strong><br className="hidden md:block"/>
-               Nos certificats sont vérifiables, sécurisés et prêts à être partagés sur LinkedIn.
+               {t('landing_sections.cert_desc', { strong: '{strong}' }).split('{strong}')[0]}
+               <strong className="text-white">{t('landing_sections.cert_desc_strong')}</strong>
+               {t('landing_sections.cert_desc', { strong: '{strong}' }).split('{strong}')[1]}
             </p>
           </div>
 
@@ -460,17 +483,17 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
 
                       {/* Body */}
                       <div className="text-center space-y-2 md:space-y-6 my-auto relative z-10">
-                          <h3 className="text-xl md:text-5xl font-serif font-black text-slate-900 uppercase tracking-[0.15em]">Certificat</h3>
-                          <p className="font-serif italic text-slate-500 text-[10px] md:text-xl">Ce document atteste que</p>
+                          <h3 className="text-xl md:text-5xl font-serif font-black text-slate-900 uppercase tracking-[0.15em]">{t('landing_sections.cert_card_title')}</h3>
+                          <p className="font-serif italic text-slate-500 text-[10px] md:text-xl">{t('landing_sections.cert_card_attest')}</p>
                           
                           <div className="relative inline-block">
-                             <p className="font-serif font-bold text-lg md:text-4xl text-indigo-950 border-b border-slate-200 pb-1 md:pb-2 px-4 md:px-12 relative z-10">Votre Nom</p>
+                             <p className="font-serif font-bold text-lg md:text-4xl text-indigo-950 border-b border-slate-200 pb-1 md:pb-2 px-4 md:px-12 relative z-10">{t('landing_sections.cert_card_name')}</p>
                              <div className="absolute -bottom-1 left-0 w-full h-px bg-amber-500/50"></div>
                           </div>
 
-                          <p className="font-serif italic text-slate-500 text-[10px] md:text-xl">a validé avec succès le niveau</p>
+                          <p className="font-serif italic text-slate-500 text-[10px] md:text-xl">{t('landing_sections.cert_card_validated')}</p>
                           <div className="inline-block px-3 md:px-8 py-1 md:py-3 bg-slate-900 text-white font-bold text-sm md:text-2xl tracking-[0.2em] uppercase shadow-lg shadow-slate-900/20">
-                              Anglais B2
+                              {t('landing_sections.cert_card_level')}
                           </div>
                       </div>
 
@@ -481,7 +504,7 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
                                 <span className="font-[cursive] text-slate-800 text-sm md:text-2xl transform -rotate-3 opacity-80" style={{ fontFamily: '"Dancing Script", cursive' }}>Rabemananjara</span>
                               </div>
                               <div className="w-12 md:w-32 h-px bg-slate-300 mb-1 mx-auto"></div>
-                              <p className="text-[6px] md:text-[10px] uppercase font-bold text-slate-400 tracking-wider">Directeur Pédagogique</p>
+                              <p className="text-[6px] md:text-[10px] uppercase font-bold text-slate-400 tracking-wider">{t('landing_sections.cert_card_role')}</p>
                           </div>
                           
                           <div className="relative group/seal cursor-pointer">
@@ -489,7 +512,7 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
                                   <Award className="w-4 h-4 md:w-10 md:h-10 text-amber-500 drop-shadow-sm" />
                               </div>
                               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[6px] md:text-[10px] font-bold px-1.5 md:px-3 py-0.5 rounded-full uppercase tracking-wider shadow-md whitespace-nowrap group-hover/seal:scale-110 transition-transform">
-                                  Vérifié
+                                  {t('landing_sections.cert_card_verified')}
                               </div>
                           </div>
                       </div>
@@ -505,18 +528,18 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
                 <div className="space-y-4 md:space-y-6">
                     <BenefitItem 
                         icon={<Linkedin className="w-5 h-5 text-[#0077b5]" />}
-                        title="Boostez votre profil LinkedIn"
-                        desc="Ajoutez votre certificat en un clic à votre profil. Soyez visible par les recruteurs."
+                        title={t('landing_sections.cert_benefit_linkedin_title')}
+                        desc={t('landing_sections.cert_benefit_linkedin_desc')}
                     />
                     <BenefitItem 
                         icon={<ShieldCheck className="w-5 h-5 text-emerald-500" />}
-                        title="100% Vérifiable"
-                        desc="Chaque certificat possède un ID unique. Les employeurs peuvent vérifier son authenticité instantanément."
+                        title={t('landing_sections.cert_benefit_verifiable_title')}
+                        desc={t('landing_sections.cert_benefit_verifiable_desc')}
                     />
                     <BenefitItem 
                         icon={<Share2 className="w-5 h-5 text-indigo-500" />}
-                        title="Partageable partout"
-                        desc="Téléchargez votre diplôme en PDF haute définition ou partagez le lien direct."
+                        title={t('landing_sections.cert_benefit_shareable_title')}
+                        desc={t('landing_sections.cert_benefit_shareable_desc')}
                     />
                 </div>
 
@@ -526,11 +549,11 @@ export const CertificateSection = ({ onStart }: { onStart: () => void }) => {
                         className="w-full sm:w-auto px-8 py-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-900 font-black text-lg rounded-2xl shadow-xl shadow-amber-500/20 hover:shadow-amber-500/40 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3 group"
                     >
                         <ShieldCheck className="w-6 h-6" />
-                        Obtenir ma certification
+                        {t('landing_sections.cert_cta')}
                         <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </button>
                     <p className="text-slate-500 text-xs mt-4 text-center sm:text-left">
-                        * Inclus dans l'abonnement Premium. Aucun frais caché.
+                        {t('landing_sections.cert_disclaimer')}
                     </p>
                 </div>
              </div>

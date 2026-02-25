@@ -207,7 +207,7 @@ const ChatInterface: React.FC<Props> = ({
           const level = user.preferences?.level;
 
           const welcomeTitle = t('chat.welcome_title');
-          const welcomeBody = t('chat.welcome_text', { targetLang, level });
+          const welcomeBody = t('chat.welcome_text', { targetLang: targetLang || '', level: level || '' });
           const welcomeText = `${welcomeTitle}\n\n${welcomeBody}`;
 
           const initialMsg: ChatMessage = {
@@ -322,7 +322,7 @@ const ChatInterface: React.FC<Props> = ({
       }
       
       const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
-      storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
+      await storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
 
       if (isAuto) {
           const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };

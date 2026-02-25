@@ -289,6 +289,20 @@ export const storageService = {
           };
 
           await supabase.from('profiles').update(updates).eq('id', user.id);
+
+          // Sync vocabulary to the new normalized table
+          if (user.vocabulary && user.vocabulary.length > 0) {
+              const vocabPayload = user.vocabulary.map(v => ({
+                  user_id: user.id,
+                  word: v.word,
+                  translation: v.translation,
+                  example: v.example || null,
+                  mastered: v.mastered || false
+              }));
+              
+              // We use upsert to avoid duplicate key errors (user_id, word)
+              await supabase.from('user_vocabulary').upsert(vocabPayload, { onConflict: 'user_id, word' });
+          }
       } catch (e) {
           console.warn("Sync error:", e);
       }
@@ -735,18 +749,85 @@ export const storageService = {
     return `${SESSION_PREFIX}${userId}_${cleanLang}_${prefs.level}_${cleanMode}`;
   },
 
-  getOrCreateSession: (userId: string, prefs: UserPreferences): LearningSession => {
+  getOrCreateSession: async (userId: string, prefs: UserPreferences): Promise<LearningSession> => {
     const key = storageService.getSessionKey(userId, prefs);
-    const data = localStorage.getItem(key);
-    if (data) return JSON.parse(data);
+    const cleanLang = prefs.targetLanguage.split(' ')[0];
+    const cleanMode = prefs.mode.replace(/\s/g, '_');
 
+    // 1. Try Supabase
+    if (isSupabaseConfigured()) {
+        try {
+            const { data } = await supabase.from('learning_sessions').select('*').eq('id', key).single();
+            if (data) {
+                const session: LearningSession = {
+                    id: data.id,
+                    messages: data.messages || [],
+                    progress: data.progress || 0,
+                    score: data.score || 0
+                };
+                localStorage.setItem(key, JSON.stringify(session)); // Sync local
+                return session;
+            }
+        } catch (e) {
+            // Not found or error, fallback to local
+        }
+    }
+
+    // 2. Try Local Storage
+    const localData = localStorage.getItem(key);
+    if (localData) {
+        const session = JSON.parse(localData);
+        // Sync to Supabase in background
+        if (isSupabaseConfigured()) {
+            supabase.from('learning_sessions').upsert({
+                id: key,
+                user_id: userId,
+                target_language: cleanLang,
+                level: prefs.level,
+                mode: cleanMode,
+                messages: session.messages,
+                progress: session.progress,
+                score: session.score
+            }).then();
+        }
+        return session;
+    }
+
+    // 3. Create New
     const newSession: LearningSession = { id: key, messages: [], progress: 0, score: 0 };
-    storageService.saveSession(newSession);
+    await storageService.saveSession(newSession, userId, prefs);
     return newSession;
   },
 
-  saveSession: (session: LearningSession) => {
+  saveSession: async (session: LearningSession, userId?: string, prefs?: UserPreferences) => {
     localStorage.setItem(session.id, JSON.stringify(session));
+    
+    if (isSupabaseConfigured()) {
+        try {
+            if (userId && prefs) {
+                const cleanLang = prefs.targetLanguage.split(' ')[0];
+                const cleanMode = prefs.mode.replace(/\s/g, '_');
+                await supabase.from('learning_sessions').upsert({
+                    id: session.id,
+                    user_id: userId,
+                    target_language: cleanLang,
+                    level: prefs.level,
+                    mode: cleanMode,
+                    messages: session.messages,
+                    progress: session.progress,
+                    score: session.score
+                });
+            } else {
+                await supabase.from('learning_sessions').update({
+                    messages: session.messages,
+                    progress: session.progress,
+                    score: session.score
+                }).eq('id', session.id);
+            }
+        } catch (e) {
+            console.warn("Error saving session to Supabase:", e);
+        }
+    }
   },
 
   clearSession: (userId: string) => {

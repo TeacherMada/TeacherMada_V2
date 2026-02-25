@@ -94,7 +94,7 @@ const AppContent: React.FC = () => {
             setUser(curr);
             // AUTO-RESUME SESSION: Si l'utilisateur a déjà un cours en cours, on le reprend direct
             if (curr.preferences && curr.preferences.targetLanguage) {
-                const session = storageService.getOrCreateSession(curr.id, curr.preferences);
+                const session = await storageService.getOrCreateSession(curr.id, curr.preferences);
                 setCurrentSession(session);
             }
         }
@@ -166,11 +166,11 @@ const AppContent: React.FC = () => {
     else toast.info(msg);
   };
 
-  const handleAuthSuccess = (u: UserProfile) => {
+  const handleAuthSuccess = async (u: UserProfile) => {
     setUser(u);
     setShowAuth(false);
     if (u.preferences && u.preferences.targetLanguage) {
-        const session = storageService.getOrCreateSession(u.id, u.preferences);
+        const session = await storageService.getOrCreateSession(u.id, u.preferences);
         setCurrentSession(session);
     }
   };
@@ -217,7 +217,7 @@ const AppContent: React.FC = () => {
     };
     setUser(updated);
     await storageService.saveUserProfile(updated);
-    const session = storageService.getOrCreateSession(user.id, updated.preferences!);
+    const session = await storageService.getOrCreateSession(user.id, updated.preferences!);
     setCurrentSession(session);
   };
 
@@ -489,7 +489,7 @@ const AppContent: React.FC = () => {
            
            <div className="space-y-4 w-full max-w-sm">
              <button 
-                onClick={() => setCurrentSession(storageService.getOrCreateSession(user.id, user.preferences!))}
+                onClick={async () => setCurrentSession(await storageService.getOrCreateSession(user.id, user.preferences!))}
                 className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-[1.02] transition-all"
              >
                Reprendre mon cours
