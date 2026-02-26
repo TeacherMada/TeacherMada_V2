@@ -91,26 +91,46 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const isConnectedRef = useRef(false);
 
   const cleanupAudio = useCallback(() => {
+      // 1. Stop Media Stream Tracks
       if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach(t => t.stop());
           mediaStreamRef.current = null;
       }
+
+      // 2. Disconnect & Nullify Processor
       if (processorRef.current) {
-          processorRef.current.disconnect();
+          try {
+            processorRef.current.disconnect();
+            processorRef.current.port.onmessage = null;
+          } catch (_e) { /* ignore */ }
           processorRef.current = null;
       }
+
+      // 3. Close & Nullify AudioContext
       if (audioContextRef.current) {
-          audioContextRef.current.close().catch(() => {});
+          try {
+              const state = audioContextRef.current.state;
+              if (state !== 'closed') {
+                  audioContextRef.current.close().catch(() => {});
+              }
+          } catch (_e) { /* ignore */ }
           audioContextRef.current = null;
       }
+
+      // 4. Close GenAI Session
+      if (activeSessionRef.current) {
+          try { 
+             // activeSessionRef.current.close(); 
+          } catch (_e) {}
+          activeSessionRef.current = null;
+      }
+      
+      isConnectedRef.current = false;
+      setTeacherSpeaking(false);
   }, []);
 
   const handleHangup = useCallback(() => {
       cleanupAudio();
-      if (activeSessionRef.current) {
-          try { activeSessionRef.current.close(); } catch(e) {}
-          activeSessionRef.current = null;
-      }
       if (isMountedRef.current && status !== 'error') onClose();
   }, [cleanupAudio, onClose, status]);
 
@@ -156,6 +176,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   const startSession = async () => {
       if (!user) return;
+      
+      // Ensure clean slate
+      cleanupAudio();
+
       // 1. Check & Deduct for First Minute immediately
       const hasBalance = await creditService.checkBalance(user.id, COST_PER_MINUTE);
       if (!hasBalance) {
@@ -182,8 +206,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
       try {
           const AC = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AC(); 
-          await ctx.resume();
+          const ctx = new AC({ sampleRate: OUTPUT_SAMPLE_RATE }); // Force sample rate if possible
+          
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          
           audioContextRef.current = ctx;
           nextStartTimeRef.current = ctx.currentTime + 0.1;
 
@@ -206,6 +234,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           }
           setStatus('error');
           setSubStatus(e.message || "Erreur technique");
+          // Ensure cleanup on error
+          cleanupAudio();
       }
   };
 
