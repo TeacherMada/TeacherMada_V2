@@ -13,6 +13,7 @@ import TutorialAgent from './components/TutorialAgent';
 import LiveTeacher from './components/LiveTeacher'; 
 import VerifyCertificate from './components/VerifyCertificate'; // Added
 import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
+import type { UserPreferences } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService'; // Added
 import { Toaster, toast } from './components/Toaster';
@@ -198,26 +199,32 @@ const AppContent: React.FC = () => {
       setCurrentSession(null);
   };
 
-  const handleOnboardingComplete = async (prefs: UserProfile['preferences']) => {
-    if (!user) return;
-    const selectedLang = prefs.targetLanguage;
+  const handleOnboardingComplete = async (prefs: any) => {
+    if (!user || !prefs) return;
+    const selectedLang = prefs.targetLanguage || "English"; // Default fallback
     const history = user.preferences?.history || {};
     const restoredStats = history[selectedLang] || { 
         lessonsCompleted: 0, 
         exercisesCompleted: 0, 
         dialoguesCompleted: 0 
     };
-    const updated = { 
+    
+    // Ensure preferences match UserPreferences type strictly
+    const newPreferences: UserPreferences = {
+        ...prefs,
+        targetLanguage: selectedLang,
+        history: history,
+        // Ensure other required fields if any, or spread prefs
+    };
+
+    const updated: UserProfile = { 
         ...user, 
         stats: restoredStats,
-        preferences: { 
-            ...prefs, 
-            history: history
-        } 
+        preferences: newPreferences
     };
     setUser(updated);
     await storageService.saveUserProfile(updated);
-    const session = await storageService.getOrCreateSession(user.id, updated.preferences!);
+    const session = await storageService.getOrCreateSession(user.id, newPreferences);
     setCurrentSession(session);
   };
 
@@ -241,7 +248,7 @@ const AppContent: React.FC = () => {
           } else {
               toast.error("Impossible de générer des exercices (Contexte insuffisant ou erreur).");
           }
-      } catch (_e) {
+      } catch (e) {
           toast.error("Erreur lors de la génération.");
       } finally {
           setIsGeneratingExercise(false);

@@ -4,7 +4,7 @@ import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
-import { X, Send, Mic, MessageCircle, Clock, ShoppingBag, Plane, Stethoscope, Utensils, AlertTriangle, Loader2, Play, Briefcase, ArrowLeft, Sparkles, Languages, BarChart, ArrowRight, Settings2, Globe } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, XCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart, ArrowRight, Settings2, Globe, ChevronRight } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -71,15 +71,13 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
   // Timer Logic
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
+    let interval: any;
     if (step === 'chat' && !finalScore && !isInitializing) {
         interval = setInterval(() => {
             setSecondsActive(prev => prev + 1);
         }, 1000);
     }
-    return () => {
-        if (interval) clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [step, finalScore, isInitializing]);
 
   useEffect(() => {
@@ -163,12 +161,12 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
       recognition.onstart = () => setIsListening(true);
       recognition.onend = () => setIsListening(false);
-      recognition.onerror = (event: { error: string }) => {
+      recognition.onerror = (event: any) => {
           console.error("Speech error", event.error);
           setIsListening(false);
           notify("Erreur micro.", 'error');
       };
-      recognition.onresult = (event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => {
+      recognition.onresult = (event: any) => {
           const transcript = event.results[0][0].transcript;
           if (transcript) {
               setInput(prev => prev + (prev ? ' ' : '') + transcript);
@@ -220,8 +218,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: result.aiReply, timestamp: Date.now() };
           setMessages(prev => [...prev, aiMsg]);
-      } catch (_e) {
-          console.error(_e);
+      } catch (e) {
+          console.error(e);
           notify("Erreur de connexion", 'error');
       } finally {
           setIsLoading(false);
@@ -254,7 +252,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           await storageService.saveUserProfile(userWithStats);
           onUpdateUser(userWithStats);
 
-      } catch (_e) {
+      } catch (e) {
           setFinalScore({ score: 0, feedback: "Erreur lors de l'évaluation." });
       } finally {
           setIsLoading(false);
@@ -385,7 +383,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                 </div>
             </div>
             {!finalScore && (
-                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2 self-end sm:self-auto"><StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span></button>
+                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2 self-end sm:self-auto"><XCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span></button>
             )}
         </div>
 
