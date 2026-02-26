@@ -323,11 +323,28 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           // AudioWorklet Implementation
           const workletCode = `
             class AudioCaptureProcessor extends AudioWorkletProcessor {
+              constructor() {
+                super();
+                this.bufferSize = 2048; // Buffer ~46ms at 44.1kHz (reduced from 4096 to lower latency)
+                this._buffer = new Float32Array(this.bufferSize);
+                this._bytesWritten = 0;
+              }
+              
               process(inputs, outputs, parameters) {
                 const input = inputs[0];
                 if (input && input.length > 0 && input[0].length > 0) {
-                  // Send a copy of the Float32Array to the main thread
-                  this.port.postMessage(input[0]);
+                  const inputChannel = input[0];
+                  
+                  // Fill buffer
+                  for (let i = 0; i < inputChannel.length; i++) {
+                    this._buffer[this._bytesWritten++] = inputChannel[i];
+                    
+                    // Flush when full
+                    if (this._bytesWritten >= this.bufferSize) {
+                      this.port.postMessage(this._buffer.slice());
+                      this._bytesWritten = 0;
+                    }
+                  }
                 }
                 return true;
               }
