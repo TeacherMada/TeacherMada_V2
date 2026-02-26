@@ -160,37 +160,46 @@ export const storageService = {
 
         if (authData.user) {
             // 2. Fetch Profile (Strict : Pas de fallback local ici)
+            // On attend un peu pour laisser le temps au trigger de création de profil de s'exécuter si c'est une première connexion
+            // Mais pour un login normal, le profil devrait déjà être là.
+            
             let user = await storageService.getUserById(authData.user.id);
             
-            // Retry logic si la DB est lente à répondre après création compte
+            // Retry logic si la DB est lente à répondre ou si le trigger est en cours
             let attempts = 0;
             while (!user && attempts < 3) {
-                await new Promise(resolve => setTimeout(resolve, 800));
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Augmenté à 1s
                 user = await storageService.getUserById(authData.user.id);
                 attempts++;
             }
             
-            // Si pas de profil, tentative de création (Self-healing)
+            // Si toujours pas de profil, c'est une erreur critique de données ou de droits
             if (!user) {
-                const username = authData.user.user_metadata?.username || id.split('@')[0];
-                const phone = authData.user.user_metadata?.phone_number || "";
-                const payload = createDefaultProfilePayload(authData.user.id, username, email, phone);
+                console.error("Login successful but profile not found for ID:", authData.user.id);
+                // Tentative de récupération d'erreur plus précise
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', authData.user.id)
+                    .single();
                 
-                const { error: insertError } = await supabase.from('profiles').insert([payload]);
-                
-                // Re-fetch après insertion
-                if (!insertError) user = mapProfile(payload);
+                if (profileError) {
+                     console.error("Profile fetch error details:", profileError);
+                     return { success: false, error: `Erreur récupération profil: ${profileError.message}` };
+                }
+
+                return { success: false, error: "Impossible de charger le profil (Données manquantes)." };
             }
 
-            if (!user) return { success: false, error: "Impossible de charger le profil (Erreur Réseau/DB)." };
             if (user.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
             
-            // 3. Sauvegarde locale SEULEMENT si succès DB
+            // 3. Sauvegarde locale pour le cache UI, mais la source de vérité reste Supabase
             storageService.saveLocalUser(user); 
             return { success: true, user };
         }
         return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
+        console.error("Login exception:", e);
         return { success: false, error: e.message };
     }
   },
