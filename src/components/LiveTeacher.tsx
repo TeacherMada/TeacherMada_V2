@@ -73,6 +73,42 @@ const floatTo16BitPCM = (input: Float32Array) => {
     return btoa(binary);
 };
 
+const getDisconnectMessage = (code: number | undefined, reason: string | undefined, ctxState: string) => {
+    let base = "Connexion interrompue";
+    let detail = "";
+
+    switch (code) {
+        case 1000:
+            base = "Session terminée normalement";
+            break;
+        case 1001:
+            base = "Page fermée ou rechargée";
+            break;
+        case 1002:
+            base = "Erreur de protocole";
+            break;
+        case 1006:
+            base = "Perte de connexion réseau";
+            detail = "(WebSocket fermé anormalement)";
+            break;
+        case 1008:
+            base = "Accès refusé";
+            detail = "(Clé API invalide ou Quota dépassé)";
+            break;
+        case 1011:
+            base = "Erreur Serveur Interne";
+            detail = "(Le serveur vocal a rencontré un problème)";
+            break;
+        default:
+            base = `Fermeture inattendue (${code || 'Inconnu'})`;
+    }
+
+    const audioStatus = ctxState !== 'running' ? `[Audio: ${ctxState}]` : '';
+    const reasonText = reason ? `| Raison: "${reason}"` : '';
+    
+    return `${base} ${detail} ${audioStatus} ${reasonText}`.trim();
+};
+
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
@@ -313,16 +349,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           cleanupAudio();
                           if (isMountedRef.current) {
                               setStatus('error');
-                              setSubStatus(`Connexion terminée (Code: ${e?.code || 'Inconnu'})`);
+                              const msg = getDisconnectMessage(e?.code, e?.reason, ctx.state);
+                              setSubStatus(msg);
                           }
                       },
-                      onerror: (err) => {
+                      onerror: (err: any) => {
                           if (!isCurrentAttempt) return;
                           console.error("Session error", err);
                           cleanupAudio();
                           if (isMountedRef.current) {
                               setStatus('error');
-                              setSubStatus("Erreur de connexion au serveur vocal.");
+                              const msg = `Erreur WebSocket: ${err.message || "Inconnue"} | Audio: ${ctx.state}`;
+                              setSubStatus(msg);
                           }
                       }
                   }
