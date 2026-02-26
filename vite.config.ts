@@ -17,24 +17,24 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['https://i.ibb.co/B2XmRwmJ/logo.png', 'logo.png'],
+        includeAssets: ['logo.svg', 'logo.png'],
         manifest: {
-          name: "TeacherMada",
-          short_name: "TM",
-          description: "Apprenez les langues intelligemment avec votre professeur personnel.",
+          name: "TeacherMada AI",
+          short_name: "TeacherMada",
+          description: "Apprenez les langues intelligemment avec votre professeur IA personnel.",
           theme_color: "#4f46e5",
           background_color: "#0f172a",
           display: "standalone",
           orientation: "portrait",
           icons: [
             {
-              src: "https://i.ibb.co/B2XmRwmJ/logo.png",
+              src: "/logo.svg",
               sizes: "any",
               type: "image/svg+xml",
               purpose: "any maskable"
             },
             {
-              src: "https://i.ibb.co/B2XmRwmJ/logo.png",
+              src: "/logo.png",
               sizes: "512x512",
               type: "image/png"
             }
