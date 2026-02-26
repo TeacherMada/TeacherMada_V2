@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins, Globe, Zap } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Clock, Globe } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -74,8 +74,7 @@ const floatTo16BitPCM = (input: Float32Array) => {
 };
 
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  if (!user) return null;
-
+  
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
   const [volume, setVolume] = useState(0); 
@@ -143,6 +142,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   }, [duration]);
 
   const processBilling = async () => {
+      if (!user) return;
       const success = await creditService.deduct(user.id, COST_PER_MINUTE);
       if (success) {
           const updatedUser = await storageService.getUserById(user.id);
@@ -155,6 +155,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const startSession = async () => {
+      if (!user) return;
       // 1. Check & Deduct for First Minute immediately
       const hasBalance = await creditService.checkBalance(user.id, COST_PER_MINUTE);
       if (!hasBalance) {
@@ -209,6 +210,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const connectWithRetry = async (keys: string[], ctx: AudioContext) => {
+      if (!user) return;
       let lastError = null;
 
       for (const apiKey of keys) {
@@ -453,6 +455,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   // UI SCALING
   const scale = 1 + (volume / 20); 
+
+  if (!user) return null;
 
   return (
       <div className="fixed inset-0 z-[150] bg-[#050505] flex flex-col font-sans overflow-hidden no-scrollbar">

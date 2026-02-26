@@ -121,6 +121,18 @@ ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_vocabulary ENABLE ROW LEVEL SECURITY;
 
+-- HELPER FUNCTION TO AVOID INFINITE RECURSION
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- PROFILES Policies
 CREATE POLICY "Users can view own profile" ON public.profiles
   FOR SELECT USING (auth.uid() = id);
@@ -129,9 +141,7 @@ CREATE POLICY "Users can update own profile" ON public.profiles
   FOR UPDATE USING (auth.uid() = id);
 
 CREATE POLICY "Admins can view all profiles" ON public.profiles
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR SELECT USING (is_admin());
 
 -- LEARNING SESSIONS Policies
 CREATE POLICY "Users can view own sessions" ON public.learning_sessions
@@ -151,23 +161,17 @@ CREATE POLICY "Users can create requests" ON public.admin_requests
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Admins can view all requests" ON public.admin_requests
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR SELECT USING (is_admin());
 
 CREATE POLICY "Admins can update requests" ON public.admin_requests
-  FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR UPDATE USING (is_admin());
 
 -- SYSTEM SETTINGS Policies
 CREATE POLICY "Everyone can view settings" ON public.system_settings
   FOR SELECT USING (true);
 
 CREATE POLICY "Only admins can update settings" ON public.system_settings
-  FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR UPDATE USING (is_admin());
 
 -- EXAM RESULTS Policies
 CREATE POLICY "Users can view own exam results" ON public.exam_results
@@ -177,9 +181,7 @@ CREATE POLICY "Users can insert own exam results" ON public.exam_results
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Admins can view all exam results" ON public.exam_results
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR SELECT USING (is_admin());
 
 -- CERTIFICATES Policies
 CREATE POLICY "Users can view own certificates" ON public.certificates
@@ -189,27 +191,20 @@ CREATE POLICY "Users can insert own certificates" ON public.certificates
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Public can view certificates by ID" ON public.certificates
-  FOR SELECT USING (true); -- Allow public verification if needed, or restrict to auth.uid() = user_id OR admin
+  FOR SELECT USING (true); 
 
 -- NOTIFICATIONS Policies
 CREATE POLICY "Users can view own notifications" ON public.notifications
   FOR SELECT USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can update own notifications" ON public.notifications
-  FOR UPDATE USING (auth.uid() = user_id); -- To mark as read
+  FOR UPDATE USING (auth.uid() = user_id); 
 
-CREATE POLICY "System/Admin can insert notifications" ON public.notifications
-  FOR INSERT WITH CHECK (true); -- Ideally restricted to service role or admin, but for now allow insert if logic is client-side (though insecure). 
--- Better: "Users can insert notifications for themselves" OR "Admins can insert for anyone"
--- Since the app creates notifications client-side (e.g. after admin request), we might need to allow inserts.
--- Let's refine:
 CREATE POLICY "Users can insert notifications for themselves" ON public.notifications
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Admins can insert notifications for anyone" ON public.notifications
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  FOR INSERT WITH CHECK (is_admin());
 
 -- USER VOCABULARY Policies
 CREATE POLICY "Users can view own vocabulary" ON public.user_vocabulary
