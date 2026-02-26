@@ -204,11 +204,7 @@ const ExamHub: React.FC<Props> = ({ user, onClose, onUpdateUser, onShowPayment }
                             <div className="flex gap-3">
                                 <ShieldCheck className="w-5 h-5 text-indigo-500 shrink-0" />
                                 <div><strong>{t('exam.rule_anti_cheat_title') || "Anti-triche actif :"}</strong> {t('exam.rule_anti_cheat_desc') || "Le mode plein écran est obligatoire. Quitter l'onglet, fermer le plein écran ou utiliser le clic droit génère un avertissement."}</div>
-                            </div>
-                            <div className="flex gap-3">
-                                <XCircle className="w-5 h-5 text-red-500 shrink-0" />
-                                <div><strong>{t('exam.rule_tolerance_title') || "Tolérance zéro :"}</strong> {t('exam.rule_tolerance_desc') || "Au bout de 3 avertissements, l'examen est annulé immédiatement et définitivement."}</div>
-                            </div>
+                            </div> 
                             <div className="flex gap-3">
                                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                                 <div><strong>{t('common.credits') || "Crédits :"}</strong> {pendingExamType === 'certification' ? CREDIT_COSTS.EXAM : CREDIT_COSTS.DIAGNOSTIC} {t('exam.rule_credits_desc') || "crédits seront déduits dès le lancement. Aucun remboursement en cas d'abandon ou d'annulation."}</div>
