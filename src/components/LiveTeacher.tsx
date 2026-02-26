@@ -92,8 +92,8 @@ const getDisconnectMessage = (code: number | undefined, reason: string | undefin
             detail = "(WebSocket fermé anormalement)";
             break;
         case 1008:
-            base = "Accès refusé";
-            detail = "(Clé API invalide ou Quota dépassé)";
+            base = "Accès refusé (Code 1008)";
+            detail = "Vérifiez votre clé API Gemini ou vos quotas.";
             break;
         case 1011:
             base = "Erreur Serveur Interne";
