@@ -304,6 +304,13 @@ Génération de quiz basés sur l'historique du chat.
 *   **Feedback :** Explication immédiate après chaque réponse.
 *   **Gain :** Réussir des exercices rapporte de l'XP (Expérience).
 
+### 🎓 Examens & Certificats
+Validez officiellement vos compétences.
+*   **Examens :** Disponibles après avoir atteint un certain niveau d'XP ou complété un module.
+*   **Contenu :** Évaluation complète (Grammaire, Vocabulaire, Compréhension).
+*   **Certificats :** Générés automatiquement en cas de réussite (Score > 70%).
+*   **Vérification :** Chaque certificat possède un QR Code et un hash de validation unique pour garantir son authenticité.
+
 ---
 
 ## 7. Espace Personnel (Dashboard)
@@ -347,14 +354,22 @@ Le système simule un paiement Mobile Money (très populaire à Madagascar).
 
 ---
 
-## 9. Assistant Guide (Chatbot Aide)
+## 9. Notifications & Alertes
+
+Restez informé de votre progression et de vos transactions.
+*   **Types :** Validation de crédits, Nouveaux messages, Résultats d'examens, Rappels d'étude.
+*   **Lecture :** Les notifications peuvent être marquées comme lues individuellement ou globalement.
+
+---
+
+## 10. Assistant Guide (Chatbot Aide)
 
 Un petit robot flottant en bas à gauche de l'écran.
 *   **Rôle :** Aider l'utilisateur à naviguer dans l'app. Conseiller et donner des tutoriels étape par étape.
 
 ---
 
-## 10. À propos 
+## 11. À propos 
 
 * **Admin**: Cette App est développé par un jeune homme Tsanta Fiderana à Madagascar Antananarivo.
 * **Facebook TeacherMada**: https://www.facebook.com/TeacherMadaFormation

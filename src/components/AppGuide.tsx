@@ -112,6 +112,24 @@ const AppGuide: React.FC<AppGuideProps> = ({ onClose }) => {
           </div>
         </div>
       )
+    },
+    {
+      title: "Examens & Certificats",
+      icon: <Check className="w-8 h-8 text-emerald-500" />,
+      content: (
+        <div className="space-y-4">
+          <p className="text-slate-600 dark:text-slate-300">
+            Validez vos compétences et obtenez des certificats officiels TeacherMada.
+          </p>
+          <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800">
+            <ul className="text-sm space-y-2 text-slate-600 dark:text-slate-300">
+              <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> Passez des examens complets.</li>
+              <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> Obtenez un certificat avec QR Code.</li>
+              <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> Partagez votre réussite !</li>
+            </ul>
+          </div>
+        </div>
+      )
     }
   ];
 

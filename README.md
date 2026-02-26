@@ -28,7 +28,14 @@ L'application ne dépend pas d'un backend Node.js complexe. La logique est dépo
 ### 3. Base de Données (Supabase)
 TeacherMada utilise Supabase comme Backend-as-a-Service (BaaS) :
 *   **Authentification** : Gestion des utilisateurs (email/password custom).
-*   **Tables** : `profiles` (stats, crédits, vocabulaire), `admin_requests` (paiements mobile money).
+*   **Tables** : 
+    *   `profiles` : Stats, crédits, XP, préférences.
+    *   `admin_requests` : Demandes de paiements mobile money.
+    *   `system_settings` : Configurations globales (clés API, prix).
+    *   `exam_results` : Historique des évaluations.
+    *   `certificates` : Diplômes générés.
+    *   `notifications` : Système d'alertes utilisateur.
+    *   `user_vocabulary` : Synchronisation du vocabulaire personnel.
 *   **Sécurité** : Row Level Security (RLS) configuré pour protéger les données.
 
 ### 4. Composants Clés (`src/components/`)

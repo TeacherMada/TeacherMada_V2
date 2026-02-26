@@ -15,10 +15,12 @@ Bienvenue dans la documentation officielle de **TeacherMada**. Ce document déta
 6.  [Modules d'Apprentissage](#6-modules-dapprentissage)
     *   [Jeux de Rôle (Dialogues)](#jeux-de-rôle)
     *   [Exercices Générés](#exercices)
+    *   [Examens & Certificats](#examens--certificats)
 7.  [Espace Personnel (Dashboard)](#7-espace-personnel-dashboard)
 8.  [Système de Crédits & Paiements](#8-système-de-crédits--paiements)
-9.  [Assistant Guide (Chatbot Aide)](#9-assistant-guide-chatbot-aide)
-10. [Architecture Technique (Pour Développeurs/IA)](#10-architecture-technique)
+9.  [Notifications & Alertes](#9-notifications--alertes)
+10. [Assistant Guide (Chatbot Aide)](#10-assistant-guide-chatbot-aide)
+11. [Architecture Technique (Pour Développeurs/IA)](#11-architecture-technique)
 
 ---
 
@@ -134,6 +136,13 @@ Génération de quiz basés sur l'historique du chat.
 *   **Feedback :** Explication immédiate après chaque réponse.
 *   **Gain :** Réussir des exercices rapporte de l'XP (Expérience).
 
+### 🎓 Examens & Certificats
+Validez officiellement vos compétences.
+*   **Examens :** Disponibles après avoir atteint un certain niveau d'XP ou complété un module.
+*   **Contenu :** Évaluation complète (Grammaire, Vocabulaire, Compréhension).
+*   **Certificats :** Générés automatiquement en cas de réussite (Score > 70%).
+*   **Vérification :** Chaque certificat possède un QR Code et un hash de validation unique pour garantir son authenticité.
+
 ---
 
 ## 7. Espace Personnel (Dashboard)
@@ -177,7 +186,15 @@ Le système simule un paiement Mobile Money (très populaire à Madagascar).
 
 ---
 
-## 9. Assistant Guide (Chatbot Aide)
+## 9. Notifications & Alertes
+
+Restez informé de votre progression et de vos transactions.
+*   **Types :** Validation de crédits, Nouveaux messages, Résultats d'examens, Rappels d'étude.
+*   **Lecture :** Les notifications peuvent être marquées comme lues individuellement ou globalement.
+
+---
+
+## 10. Assistant Guide (Chatbot Aide)
 
 Un petit robot flottant en bas à gauche de l'écran.
 *   **Rôle :** Aider l'utilisateur à naviguer dans l'app.
@@ -186,7 +203,7 @@ Un petit robot flottant en bas à gauche de l'écran.
 
 ---
 
-## 10. Architecture Technique
+## 11. Architecture Technique
 
 *(Section destinée aux développeurs ou à l'Agent IA pour la maintenance)*
 
@@ -204,11 +221,16 @@ Un petit robot flottant en bas à gauche de l'écran.
 ### ☁️ Backend (Supabase)
 *   Table `profiles` : Stocke les utilisateurs, crédits, stats.
 *   Table `admin_requests` : Stocke les demandes de paiement en attente de validation.
-*   Table `system_settings` : Stocke les configurations globales (clés API, prix, langues custom).
+*   Table `system_settings` : Stocke les configurations globales.
+*   Table `exam_results` : Historique des examens passés.
+*   Table `certificates` : Certificats officiels générés.
+*   Table `notifications` : Système de messagerie interne.
+*   Table `user_vocabulary` : Synchronisation du vocabulaire personnel.
 
 ### 🔒 Sécurité
-*   Les clés API Gemini sont stockées côté serveur (via Proxy ou Variable d'env) ou sécurisées dans `SystemSettings` (DB).
-*   La validation des crédits est manuelle (humaine) pour éviter la fraude.
+*   **RLS (Row Level Security) :** Chaque utilisateur ne peut accéder qu'à ses propres données.
+*   **Fonctions RPC :** Utilisation de fonctions SQL sécurisées (`add_credits`, `consume_credits`) pour manipuler les données sensibles.
+*   **Validation :** La validation des crédits est manuelle (humaine) pour éviter la fraude.
 
 ---
-*Dernière mise à jour : Guide v1.0 - TeacherMada App*
+*Dernière mise à jour : Guide v1.1 - TeacherMada App*
