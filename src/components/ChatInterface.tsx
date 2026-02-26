@@ -1,9 +1,9 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Languages, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, ChevronUp, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Languages, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, ChevronUp, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech, executeWithRotation, TEXT_MODELS } from '../services/geminiService';
-import { storageService } from '../services/storageService';
+import { storageService, SyncStatus } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
 import { intelligenceService } from '../services/intelligenceService';
 import { getFlagUrl } from '../constants';
@@ -36,6 +36,62 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
     buffer.copyToChannel(float32, 0);
     return buffer;
 }
+
+// --- ChatInput Component ---
+const ChatInput = React.memo(({ 
+    input, 
+    setInput, 
+    handleSend, 
+    handleTranslateInput, 
+    handleVoiceCallClick, 
+    isLowCredits, 
+    t 
+}: any) => {
+    return (
+        <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
+            <button onClick={handleVoiceCallClick} className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] animate-pulse hover:scale-110 transition-transform active:scale-95 border-2 border-white/20" title="Démarrer Appel Vocal">
+                <Phone className="w-5 h-5 fill-current" />
+            </button>
+
+            <textarea
+                value={input}
+                onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = '40px';
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                }}
+                onKeyDown={(e) => { 
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { 
+                        e.preventDefault(); 
+                        handleSend(); 
+                    }
+                }}
+                placeholder={isLowCredits ? t('chat.low_credits_warning') : t('chat.placeholder')}
+                className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                rows={1}
+                style={{ minHeight: '40px', height: '40px' }}
+                disabled={isLowCredits}
+            />
+            
+            <button 
+                onClick={handleTranslateInput}
+                className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors text-slate-400 hover:text-indigo-500 hover:bg-indigo-50" 
+                title={t('chat.translate_help')}
+                disabled={!input.trim() || isLowCredits}
+            >
+                <Languages className="w-5 h-5" />
+            </button>
+
+            <button 
+                onClick={handleSend}
+                disabled={!input.trim() || isLowCredits}
+                className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${input.trim() && !isLowCredits ? 'bg-indigo-600 text-white shadow-lg hover:scale-110 active:scale-95' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+            >
+                <Send className="w-4 h-4 ml-0.5" />
+            </button>
+        </div>
+    );
+});
 
 const ChatInterface: React.FC<Props> = ({ 
   user, session, onShowProfile, onExit, onUpdateUser, 
@@ -72,6 +128,7 @@ const ChatInterface: React.FC<Props> = ({
   const [showTutorial, setShowTutorial] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
   // Speech Recognition removed
@@ -380,6 +437,11 @@ const ChatInterface: React.FC<Props> = ({
       setShowTutorial(true);
   }, []);
 
+  useEffect(() => {
+      const unsubscribeSync = storageService.subscribeToSyncUpdates(setSyncStatus);
+      return () => unsubscribeSync();
+  }, []);
+
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
       
@@ -425,6 +487,12 @@ const ChatInterface: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-end gap-3 flex-1">
+                <div className="flex items-center justify-center relative group" title={`Statut de synchronisation: ${syncStatus}`}>
+                    {syncStatus === 'synced' && <Cloud className="w-4 h-4 text-emerald-500" />}
+                    {syncStatus === 'syncing' && <CloudLightning className="w-4 h-4 text-amber-500 animate-pulse" />}
+                    {syncStatus === 'offline' && <CloudOff className="w-4 h-4 text-slate-400" />}
+                    {syncStatus === 'error' && <CloudOff className="w-4 h-4 text-red-500" />}
+                </div>
                 <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full transition-colors">
                     {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 </button>

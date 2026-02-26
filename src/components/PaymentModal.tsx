@@ -11,7 +11,7 @@ interface PaymentModalProps {
   user: UserProfile;
 }
 
-const PRESET_AMOUNTS = [1000, 2000, 5000, 10000];
+const PRESET_AMOUNTS = [2000, 5000, 10000, 20000];
 
 // Codes USSD mis à jour selon la demande
 const OPERATOR_THEMES = {
@@ -28,7 +28,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   
   // Mobile Money State
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [amount, setAmount] = useState<string>('2000');
+  const [amount, setAmount] = useState<string>('5000');
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange'>('mvola');
   const [reference, setReference] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

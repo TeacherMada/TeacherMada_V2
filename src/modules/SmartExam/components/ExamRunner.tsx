@@ -4,6 +4,7 @@ import { SmartExam } from '../types';
 import { Clock, ArrowRight, CheckCircle, AlertCircle, Volume2, Loader2, Mic, MicOff } from 'lucide-react';
 import { generateSpeech } from '../../../services/geminiService';
 import { toast } from '../../../components/Toaster';
+import { useTranslation } from '../../../contexts/LanguageContext';
 
 function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: number = 24000) {
     const pcm16 = new Int16Array(data.buffer);
@@ -23,6 +24,7 @@ interface Props {
 }
 
 const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
+    const { t } = useTranslation();
     const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
     const [answers, setAnswers] = useState<Record<string, string>>(() => {
         const saved = localStorage.getItem(`exam_answers_${exam.id}`);
@@ -67,7 +69,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
         }
         localStorage.setItem(`exam_started_${exam.id}`, 'true');
         setHasStarted(true);
-        toast.success("L'examen commence. Bonne chance !");
+        toast.success(t('exam_runner.start_message'));
     };
 
     // Speech Recognition Effect
@@ -156,7 +158,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                 if (event.error !== 'no-speech') {
                     setIsListening(false);
                     if (event.error === 'not-allowed') {
-                        toast.error("Accès au micro refusé.");
+                        toast.error(t('exam_runner.mic_access_denied'));
                     }
                 }
             };
@@ -173,7 +175,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
 
     const toggleListening = () => {
         if (!recognitionRef.current) {
-            toast.error("La dictée vocale n'est pas supportée sur ce navigateur.");
+            toast.error(t('exam_runner.dictation_not_supported'));
             return;
         }
         if (isListening) {
@@ -187,7 +189,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                 setHistory(prev => [...prev, answers[currentSection.id] || '']);
             } catch (e) {
                 console.error(e);
-                toast.error("Impossible d'accéder au microphone. Vérifiez les permissions.");
+                toast.error(t('exam_runner.mic_permission_error'));
             }
         }
     };
@@ -203,7 +205,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
     };
 
     const handleRetrySpeaking = () => {
-        if (window.confirm("Tout effacer et recommencer ?")) {
+        if (window.confirm(t('exam_runner.confirm_reset'))) {
             if (isListening && recognitionRef.current) {
                 recognitionRef.current.stop();
                 setIsListening(false);
@@ -289,18 +291,18 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
         const handleFullscreenChange = () => {
             if (!document.fullscreenElement) {
                 setWarnings(w => w + 1);
-                toast.error("⚠️ AVERTISSEMENT : Le mode plein écran est obligatoire pour l'examen.");
+                toast.error(t('exam_runner.fullscreen_warning'));
             }
         };
 
         const handleBlur = () => {
             setWarnings(w => w + 1);
-            toast.error("⚠️ AVERTISSEMENT ANTI-TRICHE : Vous avez quitté l'onglet de l'examen. Cette action est enregistrée.");
+            toast.error(t('exam_runner.tab_switch_warning'));
         };
 
         const handleContextMenu = (e: Event) => {
             e.preventDefault();
-            toast.error("⚠️ Action non autorisée (Clic droit désactivé).");
+            toast.error(t('exam_runner.right_click_warning'));
         };
 
         window.addEventListener('blur', handleBlur);
@@ -319,7 +321,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
 
     useEffect(() => {
         if (warnings >= 3) {
-            toast.error("❌ Examen annulé pour suspicion de triche (3 avertissements).");
+            toast.error(t('exam_runner.cheat_cancel'));
             setTimeout(() => onCancel(), 0);
         }
     }, [warnings]);
@@ -371,7 +373,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
 
     const handleCopyPaste = (e: React.ClipboardEvent) => {
         e.preventDefault();
-        toast.error("⚠️ Action non autorisée (Copier/Coller désactivé).");
+        toast.error(t('exam_runner.copy_paste_warning'));
     };
 
     if (!hasStarted) {
@@ -382,38 +384,38 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                         <div className="w-20 h-20 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
                             <CheckCircle className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
                         </div>
-                        <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Prêt pour l'examen ?</h1>
-                        <p className="text-slate-500 dark:text-slate-400">Veuillez lire attentivement les règles avant de commencer.</p>
+                        <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">{t('exam_runner.ready_title')}</h1>
+                        <p className="text-slate-500 dark:text-slate-400">{t('exam_runner.read_rules')}</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                         <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
                             <div className="flex items-center gap-3 mb-2">
                                 <Clock className="w-5 h-5 text-indigo-500" />
-                                <h3 className="font-bold text-slate-800 dark:text-slate-200">Temps Limité</h3>
+                                <h3 className="font-bold text-slate-800 dark:text-slate-200">{t('exam_runner.time_limit_title')}</h3>
                             </div>
-                            <p className="text-sm text-slate-500">Vous avez <strong>15 minutes</strong> pour compléter l'examen. Le chronomètre démarre dès que vous cliquez sur "Commencer".</p>
+                            <p className="text-sm text-slate-500" dangerouslySetInnerHTML={{ __html: t('exam_runner.time_limit_desc') }} />
                         </div>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
                             <div className="flex items-center gap-3 mb-2">
                                 <AlertCircle className="w-5 h-5 text-amber-500" />
-                                <h3 className="font-bold text-slate-800 dark:text-slate-200">Anti-Triche</h3>
+                                <h3 className="font-bold text-slate-800 dark:text-slate-200">{t('exam_runner.anti_cheat_title')}</h3>
                             </div>
-                            <p className="text-sm text-slate-500">Le mode <strong>Plein Écran</strong> est obligatoire. Quitter l'onglet ou le plein écran entraînera des avertissements.</p>
+                            <p className="text-sm text-slate-500" dangerouslySetInnerHTML={{ __html: t('exam_runner.anti_cheat_desc') }} />
                         </div>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
                             <div className="flex items-center gap-3 mb-2">
                                 <Volume2 className="w-5 h-5 text-emerald-500" />
-                                <h3 className="font-bold text-slate-800 dark:text-slate-200">Audio</h3>
+                                <h3 className="font-bold text-slate-800 dark:text-slate-200">{t('exam_runner.audio_title')}</h3>
                             </div>
-                            <p className="text-sm text-slate-500">Les questions d'écoute sont limitées à <strong>2 lectures</strong>. Assurez-vous que votre son fonctionne.</p>
+                            <p className="text-sm text-slate-500" dangerouslySetInnerHTML={{ __html: t('exam_runner.audio_desc') }} />
                         </div>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
                             <div className="flex items-center gap-3 mb-2">
                                 <Mic className="w-5 h-5 text-rose-500" />
-                                <h3 className="font-bold text-slate-800 dark:text-slate-200">Microphone</h3>
+                                <h3 className="font-bold text-slate-800 dark:text-slate-200">{t('exam_runner.mic_title')}</h3>
                             </div>
-                            <p className="text-sm text-slate-500">Pour l'expression orale, vous pourrez dicter vos réponses. Vérifiez votre micro.</p>
+                            <p className="text-sm text-slate-500">{t('exam_runner.mic_desc')}</p>
                         </div>
                     </div>
 
@@ -422,13 +424,13 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                             onClick={onCancel}
                             className="flex-1 py-4 px-6 rounded-xl font-bold text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
                         >
-                            Annuler
+                            {t('exam_runner.cancel')}
                         </button>
                         <button 
                             onClick={handleStart}
                             className="flex-[2] py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2"
                         >
-                            Commencer l'examen <ArrowRight className="w-5 h-5" />
+                            {t('exam_runner.start_exam')} <ArrowRight className="w-5 h-5" />
                         </button>
                     </div>
                 </div>
@@ -461,7 +463,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                     {/* Center: Level/Language */}
                     <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center w-full max-w-[50%]">
                         <span className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full whitespace-nowrap truncate max-w-full">
-                            {exam.targetLevel || 'Niveau Inconnu'} • {exam.language || 'Langue Inconnue'}
+                            {exam.targetLevel || t('exam_runner.unknown_level')} • {exam.language || t('exam_runner.unknown_lang')}
                         </span>
                     </div>
 
@@ -504,15 +506,15 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                 <div className="w-full animate-slide-up pb-20">
                     <div className="mb-8">
                         <span className="inline-block px-3 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold uppercase mb-4">
-                            {currentSection.type === 'qcm' ? 'Compréhension Écrite' : 
-                             currentSection.type === 'listening' ? 'Compréhension Orale' :
-                             currentSection.type === 'writing' ? 'Expression Écrite' : 'Expression Orale'}
+                            {currentSection.type === 'qcm' ? t('exam_runner.reading') : 
+                             currentSection.type === 'listening' ? t('exam_runner.listening') :
+                             currentSection.type === 'writing' ? t('exam_runner.writing') : t('exam_runner.speaking')}
                         </span>
 
                         {currentSection.type === 'listening' && currentSection.context && (
                             <div className="mb-8 p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-sm">
                                 <div className="absolute top-4 right-4 bg-white dark:bg-slate-800 px-2 py-1 rounded-md text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 shadow-sm">
-                                    Écoutes : {playCounts[currentSection.id] || 0} / 2
+                                    {t('exam_runner.listens_count', { count: playCounts[currentSection.id] || 0 })}
                                 </div>
                                 <button 
                                     onClick={() => playAudio(currentSection.context!)}
@@ -522,9 +524,9 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                                     {isPlaying ? <Loader2 className="w-10 h-10 animate-spin" /> : <Volume2 className="w-10 h-10" />}
                                 </button>
                                 <p className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
-                                    {isPlaying ? "Écoute en cours..." : (playCounts[currentSection.id] || 0) >= 2 ? "Limite d'écoute atteinte" : "Cliquez pour écouter l'audio"}
+                                    {isPlaying ? t('exam_runner.listening_active') : (playCounts[currentSection.id] || 0) >= 2 ? t('exam_runner.listening_limit') : t('exam_runner.click_to_listen')}
                                 </p>
-                                <p className="text-xs text-slate-500 mt-2">Vous pouvez écouter l'audio <strong>2 fois maximum</strong>.</p>
+                                <p className="text-xs text-slate-500 mt-2" dangerouslySetInnerHTML={{ __html: t('exam_runner.listening_max_note') }} />
                             </div>
                         )}
 
@@ -563,14 +565,14 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                                             title="Annuler la dernière action"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-                                            Undo
+                                            {t('exam_runner.undo')}
                                         </button>
                                     </div>
                                 )}
                                 <textarea
                                     value={answers[currentSection.id] || ''}
                                     onChange={(e) => handleManualChange(e.target.value)}
-                                    placeholder={currentSection.type === 'speaking' ? "Votre réponse apparaîtra ici au fur et à mesure que vous parlez..." : "Rédigez votre réponse ici..."}
+                                    placeholder={currentSection.type === 'speaking' ? t('exam_runner.speaking_placeholder') : t('exam_runner.writing_placeholder')}
                                     readOnly={currentSection.type === 'speaking' && isListening}
                                     className={`w-full h-64 p-5 pb-16 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-indigo-500 outline-none resize-none text-slate-800 dark:text-white leading-relaxed ${currentSection.type === 'speaking' && isListening ? 'cursor-not-allowed bg-slate-50 dark:bg-slate-900/50' : ''}`}
                                 />
@@ -581,7 +583,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                                             <button
                                                 onClick={handleRetrySpeaking}
                                                 className="p-2 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300 transition-colors"
-                                                title="Tout effacer"
+                                                title={t('exam_runner.clear_all')}
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                                             </button>
@@ -593,17 +595,17 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                                                 ? 'bg-red-500 text-white animate-pulse hover:bg-red-600 ring-4 ring-red-200 dark:ring-red-900/50' 
                                                 : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-105'
                                             }`}
-                                            title={isListening ? "Arrêter l'enregistrement" : "Démarrer l'enregistrement vocal"}
+                                            title={isListening ? t('exam_runner.stop_recording') : t('exam_runner.start_recording')}
                                         >
                                             {isListening ? (
                                                 <>
                                                     <MicOff className="w-4 h-4" />
-                                                    <span>Stop</span>
+                                                    <span>{t('exam_runner.stop')}</span>
                                                 </>
                                             ) : (
                                                 <>
                                                     <Mic className="w-4 h-4" />
-                                                    <span>Parler ici</span>
+                                                    <span>{t('exam_runner.speak_here')}</span>
                                                 </>
                                             )}
                                         </button>
@@ -616,17 +618,17 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                                             ? 'bg-red-500 text-white animate-pulse hover:bg-red-600 ring-4 ring-red-200 dark:ring-red-900/50' 
                                             : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-105'
                                         }`}
-                                        title={isListening ? "Arrêter la dictée" : "Démarrer la dictée vocale"}
+                                        title={isListening ? t('exam_runner.stop_dictation') : t('exam_runner.start_dictation')}
                                     >
                                         {isListening ? (
                                             <>
                                                 <MicOff className="w-4 h-4" />
-                                                <span>Enregistrement...</span>
+                                                <span>{t('exam_runner.recording')}</span>
                                             </>
                                         ) : (
                                             <>
                                                 <Mic className="w-4 h-4" />
-                                                <span>Dictée Vocale</span>
+                                                <span>{t('exam_runner.dictation')}</span>
                                             </>
                                         )}
                                     </button>
@@ -634,7 +636,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                             </div>
                             {currentSection.type === 'speaking' && (
                                 <p className="text-xs text-slate-500 italic flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3"/> Mode Évaluation Orale : Votre réponse est transcrite et analysée pour la fluidité et la précision.
+                                    <AlertCircle className="w-3 h-3"/> {t('exam_runner.speaking_mode_note')}
                                 </p>
                             )}
                         </div>
@@ -649,7 +651,7 @@ const ExamRunner: React.FC<Props> = ({ exam, onFinish, onCancel }) => {
                     disabled={!answers[currentSection.id]}
                     className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg flex items-center gap-2 transition-all"
                 >
-                    {currentSectionIndex < exam.sections.length - 1 ? 'Suivant' : 'Terminer l\'examen'}
+                    {currentSectionIndex < exam.sections.length - 1 ? t('exam_runner.next') : t('exam_runner.finish')}
                     <ArrowRight className="w-5 h-5" />
                 </button>
             </div>

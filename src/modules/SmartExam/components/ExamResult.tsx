@@ -3,6 +3,7 @@ import React from 'react';
 import { ExamResultDetailed } from '../types';
 import { CheckCircle, XCircle, Download, Share2, Award, ChevronRight, Target, TrendingUp, AlertTriangle } from 'lucide-react';
 import CertificateView from './Certificate';
+import { useTranslation } from '../../../contexts/LanguageContext';
 
 interface Props {
     result: ExamResultDetailed;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false }) => {
+    const { t } = useTranslation();
     const [showCert, setShowCert] = React.useState(initialShowCert && !!result.certificateId);
 
     if (showCert && result.certificateId) {
@@ -44,10 +46,10 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                                 {result.passed ? <Award className="w-12 h-12 text-yellow-400 drop-shadow-lg" /> : <AlertTriangle className="w-12 h-12 text-amber-400 drop-shadow-lg" />}
                             </div>
                             <h1 className="text-4xl font-black text-white mb-3 tracking-tight">
-                                {result.passed ? "Félicitations !" : "Résultat de l'Examen"}
+                                {result.passed ? t('exam.congrats') : t('exam.result_title')}
                             </h1>
                             <p className="text-white/90 font-medium text-lg max-w-lg mx-auto">
-                                {result.passed ? "Vous avez validé cette certification avec succès." : "Le seuil de réussite n'a pas été atteint cette fois-ci."}
+                                {result.passed ? t('exam.passed') : t('exam.failed')}
                             </p>
                         </div>
                     </div>
@@ -62,7 +64,7 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                                 </svg>
                                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                                     <div className="text-5xl font-black text-slate-900 dark:text-white tracking-tighter">{Math.round(result.globalScore)}</div>
-                                    <div className="text-sm font-bold text-slate-400 uppercase tracking-widest">Score</div>
+                                    <div className="text-sm font-bold text-slate-400 uppercase tracking-widest">{t('exam.score')}</div>
                                 </div>
                             </div>
                             
@@ -72,7 +74,7 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                                         <Target className="w-6 h-6" />
                                     </div>
                                     <div>
-                                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Niveau Évalué</div>
+                                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{t('common.level')}</div>
                                         <div className="text-xl font-black text-slate-900 dark:text-white">{result.detectedLevel}</div>
                                     </div>
                                 </div>
@@ -81,9 +83,9 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                                         <TrendingUp className="w-6 h-6" />
                                     </div>
                                     <div>
-                                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Statut</div>
+                                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{t('exam.status')}</div>
                                         <div className={`text-xl font-black ${result.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                                            {result.passed ? "Admis" : "Non Admis"}
+                                            {result.passed ? t('dashboard.passed') : t('dashboard.failed')}
                                         </div>
                                     </div>
                                 </div>
@@ -91,15 +93,15 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                         </div>
 
                         <h3 className="text-lg font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                            Détail des Compétences
+                            {t('exam.skills_detail')}
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
                             {Object.entries(result.skillScores).map(([skill, score]) => {
                                 const skillNames: Record<string, string> = {
-                                    reading: "Compréhension Écrite",
-                                    writing: "Expression Écrite",
-                                    listening: "Compréhension Orale",
-                                    speaking: "Expression Orale"
+                                    reading: t('exam_runner.reading'),
+                                    writing: t('exam_runner.writing'),
+                                    listening: t('exam_runner.listening'),
+                                    speaking: t('exam_runner.speaking')
                                 };
                                 return (
                                     <div key={skill} className="p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
@@ -119,8 +121,8 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                             <div className="flex items-center gap-3 mb-4">
                                 <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-10 h-10 rounded-full shadow-sm" />
                                 <div>
-                                    <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Feedback de TeacherMada</h3>
-                                    <p className="text-xs text-slate-500">Directeur Pédagogique</p>
+                                    <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">{t('exam.feedback_title')}</h3>
+                                    <p className="text-xs text-slate-500">{t('landing_sections.cert_card_role')}</p>
                                 </div>
                             </div>
                             <div className="text-slate-700 dark:text-slate-300 text-sm md:text-base leading-relaxed font-medium">
@@ -131,11 +133,11 @@ const ExamResult: React.FC<Props> = ({ result, onClose, initialShowCert = false 
                         <div className="flex flex-col sm:flex-row gap-4">
                             {result.passed && result.certificateId && (
                                 <button onClick={() => setShowCert(true)} className="flex-1 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black rounded-2xl shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95">
-                                    <Award className="w-6 h-6" /> Obtenir mon Certificat
+                                    <Award className="w-6 h-6" /> {t('exam.download_certificate')}
                                 </button>
                             )}
                             <button onClick={onClose} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95">
-                                Retour au tableau de bord
+                                {t('exam.back_home')}
                             </button>
                         </div>
                     </div>

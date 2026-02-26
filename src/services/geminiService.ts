@@ -31,8 +31,8 @@ const AUDIO_MODELS = [
 
 // Récupération des clés API
 const getApiKeys = () => {
-  const rawKey = process.env.API_KEY || "";
-  return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 10);
+  const rawKey = (import.meta as any).env.VITE_GOOGLE_API_KEY || (typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : "") || "";
+  return rawKey.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 10);
 };
 
 // --- MOTEUR DE ROTATION INTELLIGENT ---

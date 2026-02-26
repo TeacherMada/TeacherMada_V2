@@ -4,6 +4,7 @@ import { UserProfile } from '../types';
 import { storageService } from '../services/storageService';
 import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send, AlertTriangle } from 'lucide-react';
 import LegalModal from './LegalModals';
+import { useTranslation } from '../contexts/LanguageContext';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -14,6 +15,7 @@ interface AuthScreenProps {
 }
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMode, toggleTheme, notify }) => {
+  const { t, language, setLanguage } = useTranslation();
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -31,7 +33,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
     setErrorMessage(null);
 
     if (!username.trim() || !password.trim()) {
-        setErrorMessage("Veuillez remplir les champs obligatoires.");
+        setErrorMessage(t('auth.error_required_fields'));
         return;
     }
 
@@ -49,12 +51,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         if (result.success && result.user) {
             onAuthSuccess(result.user);
         } else {
-            setErrorMessage(result.error || "Une erreur est survenue.");
-            notify(result.error || "Erreur de connexion.", 'error');
+            setErrorMessage(result.error || t('auth.error_generic'));
+            notify(result.error || t('auth.error_generic'), 'error');
         }
     } catch (error) {
         console.error(error);
-        setErrorMessage("Erreur critique de connexion.");
+        setErrorMessage(t('auth.error_critical'));
     } finally {
         setIsLoading(false);
     }
@@ -67,7 +69,24 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
       <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-center z-10">
           <button onClick={onBack} className="p-3 bg-white dark:bg-slate-900 shadow-sm rounded-full text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105"><ArrowLeft className="w-5 h-5" /></button>
-          <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-sm hover:shadow-md text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer"><Sun className="w-5 h-5" /></button>
+          
+          <div className="flex gap-3 items-center">
+              <div className="flex bg-white dark:bg-slate-900 rounded-full p-1 border border-slate-200 dark:border-white/10 shadow-sm">
+                  <button 
+                      onClick={() => setLanguage('fr')}
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${language === 'fr' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                  >
+                      FR
+                  </button>
+                  <button 
+                      onClick={() => setLanguage('mg')}
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${language === 'mg' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                  >
+                      MG
+                  </button>
+              </div>
+              <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-sm hover:shadow-md text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer"><Sun className="w-5 h-5" /></button>
+          </div>
       </div>
 
       <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-8 pt-0 transform transition-all duration-500 animate-fade-in relative overflow-visible mt-16 border border-slate-100 dark:border-slate-800">
@@ -79,13 +98,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           </div>
           
           <h1 className="text-2xl font-black text-slate-900 dark:text-white text-center mt-6 tracking-tight">
-              {isRegistering ? "Créer un compte" : "Bon retour"}
+              {isRegistering ? t('auth.create_account') : t('auth.welcome_back')}
           </h1>
         </div>
 
         <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 relative z-10">
-            <button onClick={() => { setIsRegistering(false); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Connexion</button>
-            <button onClick={() => { setIsRegistering(true); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Inscription</button>
+            <button onClick={() => { setIsRegistering(false); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>{t('auth.login')}</button>
+            <button onClick={() => { setIsRegistering(true); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>{t('auth.register')}</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
@@ -99,51 +118,51 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
           <div>
             <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">
-                {isRegistering ? "NOM D'UTILISATEUR" : "EMAIL / TÉL / NOM"}
+                {isRegistering ? t('auth.username_label') : t('auth.identity_label')}
             </label>
             <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><User className="w-full h-full" /></div>
-                <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Votre nom pour le certificat" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
+                <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('auth.username_placeholder')} className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
             </div>
           </div>
 
           {isRegistering && (
             <div className="space-y-5 animate-fade-in">
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">EMAIL (OPTIONNEL)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">{t('auth.email_label')}</label>
                     <div className="relative group">
                         <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Mail className="w-full h-full" /></div>
-                        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Pour récupérer le compte" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
+                        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('auth.identity_placeholder')} className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
                     </div>
                 </div>
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">NUMÉRO (OPTIONNEL)</label>
+                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">{t('auth.phone_label')}</label>
                     <div className="relative group">
                         <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Phone className="w-full h-full" /></div>
-                        <input type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="034 00 000 00" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
+                        <input type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder={t('auth.phone_placeholder')} className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
                     </div>
                 </div>
             </div>
           )}
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">MOT DE PASSE</label>
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">{t('auth.password_label')}</label>
             <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Lock className="w-full h-full" /></div>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
+                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('auth.password_placeholder')} className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
             </div>
           </div>
 
           <button type="submit" disabled={isLoading} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed group transform active:scale-[0.98]">
-            {isLoading ? "Connexion..." : (isRegistering ? "Commencer" : "Se connecter")}
+            {isLoading ? t('auth.login_action') : (isRegistering ? t('auth.register_action') : t('auth.login_submit'))}
             {!isLoading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
           </button>
         </form>
 
         <div className="mt-8 text-center border-t border-slate-100 dark:border-slate-800 pt-4 pb-2">
             <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                En vous connectant, vous acceptez nos 
-                <button onClick={() => setActiveLegal('terms')} className="text-indigo-500 hover:underline mx-1 font-bold">Conditions</button>.
+                {t('auth.terms_agreement')} 
+                <button onClick={() => setActiveLegal('terms')} className="text-indigo-500 hover:underline mx-1 font-bold">{t('legal.terms')}</button>.
             </p>
         </div>
       </div>

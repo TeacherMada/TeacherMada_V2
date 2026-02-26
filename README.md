@@ -74,19 +74,30 @@ src/
     *   Adaptation au niveau (A1 à C2).
     *   Explications en Français ou Malagasy.
 
-2.  **Smart Vocabulary** :
+2.  **Internationalisation (i18n)** :
+    *   Interface entièrement traduite en **Français (FR)** et **Malagasy (MG)**.
+    *   Changement de langue instantané (Mobile-first).
+    *   Adaptation culturelle des contenus.
+
+3.  **Module Examen & Certification** :
+    *   **Diagnostic** : Évaluation rapide du niveau sans enjeu.
+    *   **Certification** : Examen complet (CEFR) avec surveillance anti-triche (Plein écran, Focus tab).
+    *   **Certificat** : Génération de diplôme PDF vérifiable avec QR Code unique.
+    *   **Feedback** : Analyse détaillée par compétence (Listening, Reading, Writing, Speaking).
+
+4.  **Smart Vocabulary** :
     *   Extraction automatique des mots difficiles d'une conversation.
     *   Génération de définitions et exemples contextuels.
     *   Synthèse vocale (Text-to-Speech) pour la prononciation.
 
-3.  **Mode Roleplay** :
+5.  **Mode Roleplay** :
     *   Scénarios pré-définis (Marché, Médecin, Entretien...).
     *   Chronomètre (1 min = 1 crédit).
     *   Score et feedback final.
 
-4.  **Admin Dashboard** :
+6.  **Admin Dashboard** :
     *   Gestion des utilisateurs et des crédits.
-    *   Validation des paiements Mobile Money.
+    *   Validation des paiements Mobile Money (2000 Ar, 5000 Ar, 10000 Ar, 20000 Ar).
     *   Ajout dynamique de nouvelles langues.
 
 ## 📦 Installation & Développement

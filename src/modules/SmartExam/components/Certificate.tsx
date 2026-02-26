@@ -5,6 +5,7 @@ import { Download, X, Home, FileText, ChevronDown, Image as ImageIcon, Loader2, 
 import QRCode from 'react-qr-code';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
+import { useTranslation } from '../../../contexts/LanguageContext';
 
 interface Props {
     result: ExamResultDetailed;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 const CertificateView: React.FC<Props> = ({ result, onClose }) => {
+    const { t } = useTranslation();
     const certRef = useRef<HTMLDivElement>(null);
     const [isExporting, setIsExporting] = useState(false);
     const [showReport, setShowReport] = useState(false);
@@ -125,16 +127,16 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
             {/* Header Controls */}
             <div className="w-full max-w-[1123px] flex flex-col md:flex-row justify-between items-center mb-6 z-50 gap-4">
                 <button onClick={onClose} className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl backdrop-blur-sm transition-all font-bold text-sm border border-white/10 hover:border-white/30">
-                    <Home className="w-4 h-4" /> <span className="md:inline">Accueil</span>
+                    <Home className="w-4 h-4" /> <span className="md:inline">{t('exam.back_home')}</span>
                 </button>
 
                 <div className="w-full md:w-auto flex flex-wrap justify-center gap-2 bg-slate-800/50 p-1.5 rounded-2xl border border-white/10 backdrop-blur-sm">
                     <button onClick={() => setShowReport(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all font-bold text-xs md:text-sm whitespace-nowrap">
-                        <FileText className="w-4 h-4" /> Rapport
+                        <FileText className="w-4 h-4" /> {t('certificate.report')}
                     </button>
                     <button onClick={handleCopyLink} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all font-bold text-xs md:text-sm whitespace-nowrap">
                         {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Link className="w-4 h-4" />} 
-                        {copied ? 'Copié' : 'Lien'}
+                        {copied ? t('certificate.copied') : t('certificate.link')}
                     </button>
                     <button onClick={handleExportPNG} disabled={isExporting} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all font-bold text-xs md:text-sm disabled:opacity-50 whitespace-nowrap">
                         {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />} PNG
@@ -151,7 +153,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                     <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
                             <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                                <FileText className="w-5 h-5 text-indigo-500" /> Rapport Détaillé
+                                <FileText className="w-5 h-5 text-indigo-500" /> {t('certificate.detailed_report')}
                             </h3>
                             <button onClick={() => setShowReport(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
                                 <X className="w-5 h-5 text-slate-500" />
@@ -164,8 +166,8 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                                         {Math.round(result.globalScore)}%
                                     </div>
                                     <div>
-                                        <div className="text-sm font-bold text-slate-500 uppercase">Score Global</div>
-                                        <div className="text-2xl font-black text-slate-900 dark:text-white">{result.passed ? 'Admis' : 'Non Admis'}</div>
+                                        <div className="text-sm font-bold text-slate-500 uppercase">{t('certificate.global_score')}</div>
+                                        <div className="text-2xl font-black text-slate-900 dark:text-white">{result.passed ? t('dashboard.passed') : t('dashboard.failed')}</div>
                                     </div>
                                 </div>
                                 
@@ -173,12 +175,12 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
 
                                 <div className="grid grid-cols-2 gap-6 w-full sm:w-auto">
                                     <div>
-                                        <div className="text-xs font-bold text-slate-500 uppercase mb-1">Niveau</div>
+                                        <div className="text-xs font-bold text-slate-500 uppercase mb-1">{t('common.level')}</div>
                                         <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">{result.detectedLevel}</div>
                                     </div>
                                     {result.confidenceScore !== undefined && (
                                         <div>
-                                            <div className="text-xs font-bold text-slate-500 uppercase mb-1">Confiance</div>
+                                            <div className="text-xs font-bold text-slate-500 uppercase mb-1">{t('certificate.confidence')}</div>
                                             <div className="text-xl font-black text-amber-500">{result.confidenceScore}%</div>
                                         </div>
                                     )}
@@ -187,7 +189,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
 
                             <h4 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase flex items-center gap-2">
                                 <span className="w-1 h-4 bg-indigo-500 rounded-full"></span>
-                                Compétences
+                                {t('certificate.skills')}
                             </h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                                 {Object.entries(result.skillScores).map(([skill, score]) => (
@@ -204,7 +206,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                             </div>
 
                             <div className="bg-indigo-50 dark:bg-indigo-900/10 p-6 rounded-2xl border border-indigo-100 dark:border-indigo-900/30">
-                                <h4 className="font-bold text-indigo-900 dark:text-indigo-300 mb-2 text-sm uppercase">Feedback Pédagogique</h4>
+                                <h4 className="font-bold text-indigo-900 dark:text-indigo-300 mb-2 text-sm uppercase">{t('certificate.pedagogical_feedback')}</h4>
                                 <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">
                                     {result.feedback}
                                 </p>
@@ -212,7 +214,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                         </div>
                         <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 text-center mt-auto">
                             <button onClick={() => setShowReport(false)} className="text-sm font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors">
-                                Fermer le rapport
+                                {t('certificate.close_report')}
                             </button>
                         </div>
                     </div>
@@ -259,7 +261,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                                 </h1>
                                 <div className="space-y-4 flex flex-col items-center">
                                     <h2 className="text-[36px] font-bold text-[#9c7c38] tracking-[0.1em] uppercase" style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                                        CERTIFICAT DE RÉUSSITE
+                                        {t('exam.cert_title')}
                                     </h2>
                                 </div>
                             </div>
@@ -267,7 +269,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                             {/* Body */}
                             <div className="text-center space-y-8 flex-1 flex flex-col justify-center items-center min-h-0 -mt-4">
                                 <p className="text-[24px] text-[#1b365d] tracking-wide font-medium">
-                                    Nous avons l’honneur de certifier que
+                                    {t('certificate.certify_that')}
                                 </p>
                                 
                                 <h3 className="text-[56px] font-black text-[#1b365d] uppercase tracking-wider leading-tight px-8" style={{ fontFamily: "'Montserrat', sans-serif" }}>
@@ -276,8 +278,8 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                                 
                                 <div className="space-y-4">
                                     <p className="text-[24px] text-[#1b365d] tracking-wide font-medium leading-relaxed">
-                                        a complété avec excellence et distinction<br/>
-                                        le programme professionnel de :
+                                        {t('certificate.completed_with_distinction')}<br/>
+                                        {t('certificate.professional_program_of')}
                                     </p>
                                     
                                     <h4 className="text-[42px] font-bold text-[#1b365d] uppercase tracking-widest mt-6" style={{ fontFamily: "'Montserrat', sans-serif" }}>
@@ -292,7 +294,7 @@ const CertificateView: React.FC<Props> = ({ result, onClose }) => {
                                 
                                 {/* Date & ID Left */}
                                 <div className="text-center space-y-2 w-[280px] pb-2">
-                                    <p className="text-[18px] text-[#1b365d] font-medium">Date :</p>
+                                    <p className="text-[18px] text-[#1b365d] font-medium">{t('certificate.date')}</p>
                                     <p className="text-[24px] text-[#1b365d] border-b-2 border-[#1b365d] pb-2 px-8 inline-block w-full font-bold">
                                         {formattedDate}
                                     </p>

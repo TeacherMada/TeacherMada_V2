@@ -226,6 +226,7 @@ L'écran d'authentification gère l'accès sécurisé.
 3.  **Langue d'Explication :**
     *   **Français 🇫🇷** : Les règles et consignes seront en français.
     *   **Malagasy 🇲🇬** : Les explications seront en Malagasy (idéal pour les locaux).
+    *   **Note :** Vous pouvez changer la langue de l'interface (FR/MG) à tout moment via le bouton en haut de l'écran (Mobile) ou dans les paramètres.
 
 ---
 
@@ -338,11 +339,11 @@ TeacherMada fonctionne sur une économie de crédits pour financer les coûts se
 
 ### 💳 Rechargement (Paiement)
 Le système simule un paiement Mobile Money (très populaire à Madagascar).
-1.  L'utilisateur choisit/définir un montant (ex: 2000 Ar) échanger auto équivalent en crédit crd.
-2.  La modale affiche les numéros **Telma/Mvola**, **Airtel**, **Orange** **nom mobile money Tsanta Fiderana** de l'admin.
+1.  L'utilisateur choisit un montant parmi : **2 000 Ar**, **5 000 Ar**, **10 000 Ar**, ou **20 000 Ar**.
+2.  La modale affiche les numéros **Telma/Mvola**, **Airtel**, **Orange** (Nom: Tsanta Fiderana).
 3.  L'utilisateur effectue le transfert réel sur son téléphone ou via Cash point.
-4.  L'utilisateur entre la **Référence de transaction** ou **indices de la transaction** (reçue par SMS) dans l'app et envoie la demande.
-5.  **Validation :** La demande crédits valide automatique instantané si la référence ou indices sont égaux à celle la reçu de paiement de l'admin. Sinon La demande part dans le "Dashboard Admin". L'admin vérifie son téléphone et valide les crédits manuels.
+4.  L'utilisateur entre la **Référence de transaction** (reçue par SMS) dans l'app et valide.
+5.  **Validation :** L'admin vérifie et valide les crédits manuellement via le Dashboard Admin.
 
 ---
 

@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
 
   // Prioritize VITE_GOOGLE_API_KEY (from Render/User) or fallback to API_KEY
-  const apiKey = env.VITE_GOOGLE_API_KEY || env.API_KEY || '';
+  const apiKey = env.GEMINI_API_KEY || env.VITE_GOOGLE_API_KEY || env.API_KEY || '';
 
   return {
     plugins: [
@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
     define: {
       // Stringify the API key to inject it into the client code
       'process.env.API_KEY': JSON.stringify(apiKey),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || apiKey),
     },
     build: {
       outDir: 'dist',

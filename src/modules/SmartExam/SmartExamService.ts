@@ -24,6 +24,7 @@ export const SmartExamService = {
         const level = user.preferences?.level || 'A1';
         const lang = user.preferences?.targetLanguage || 'Anglais';
         const difficulties = user.aiMemory?.currentDifficulties?.join(', ') || 'Aucune difficulté majeure';
+        const explanationLang = user.preferences?.explanationLanguage || 'Français';
 
         try {
             // 2. Generate Exam
@@ -31,8 +32,10 @@ export const SmartExamService = {
             Génère un examen de certification de type "${type}" pour l'étudiant "${user.username}" (Langue cible : "${lang}").
             L'examen doit être rigoureux, professionnel et cibler ses difficultés récentes : ${difficulties}.
             
-            IMPORTANT : L'examen doit être STRICTEMENT adapté au niveau cible "${level}".
-            Ne PAS inclure de questions d'un niveau supérieur (par exemple, pas de B1/B2 si le niveau cible est A1).
+            IMPORTANT : 
+            - L'examen doit être STRICTEMENT adapté au niveau cible "${level}".
+            - Les instructions des questions (le champ "question") doivent être rédigées en "${explanationLang}".
+            - Ne PAS inclure de questions d'un niveau supérieur (par exemple, pas de B1/B2 si le niveau cible est A1).
             La difficulté doit être progressive AU SEIN du niveau ${level} :
             - Questions 1 à 5 : Facile (Début de niveau ${level})
             - Questions 6 à 10 : Moyen (Milieu de niveau ${level})
@@ -111,6 +114,7 @@ export const SmartExamService = {
     },
 
     async evaluateExam(exam: SmartExam, answers: Record<string, string>, user: UserProfile): Promise<ExamResultDetailed> {
+        const explanationLang = user.preferences?.explanationLanguage || 'Français';
         const prompt = `
         En tant que TeacherMada (Professeur expert, strict mais bienveillant), évalue cet examen de certification pour l'étudiant "${user.username}".
         Langue évaluée : ${exam.language}.
@@ -126,7 +130,7 @@ export const SmartExamService = {
            - Si le score est élevé (> 80), tu peux estimer un niveau supérieur si le vocabulaire le justifie.
         3. Calcule un score sur 100 (sois exigeant, les fautes de base pénalisent lourdement).
            - Si "AUCUNE RÉPONSE", comptez 0 pour cette question.
-        4. Donne un feedback constructif et professionnel. 
+        4. Donne un feedback constructif et professionnel en "${explanationLang}". 
            - Si l'étudiant réussit (>= 70), félicite-le de manière formelle.
            - Si l'étudiant échoue (< 70), donne-lui du courage, des recommandations précises et un plan d'action concret étape par étape pour s'améliorer.
            - RECOMMANDATIONS CIBLÉES :

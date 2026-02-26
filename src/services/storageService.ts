@@ -10,8 +10,19 @@ const SUPPORT_QUOTA_KEY = 'tm_support_quota';
 type UserUpdateListener = (user: UserProfile) => void;
 let userListeners: UserUpdateListener[] = [];
 
+export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error';
+type SyncStatusListener = (status: SyncStatus) => void;
+let syncListeners: SyncStatusListener[] = [];
+
+let currentSyncStatus: SyncStatus = 'synced';
+
 const notifyListeners = (user: UserProfile) => {
     userListeners.forEach(listener => listener(user));
+};
+
+const notifySyncListeners = (status: SyncStatus) => {
+    currentSyncStatus = status;
+    syncListeners.forEach(listener => listener(status));
 };
 
 // Helper to map Supabase DB shape to UserProfile
@@ -83,6 +94,14 @@ const createDefaultProfilePayload = (id: string, username: string, email: string
 });
 
 export const storageService = {
+  subscribeToSyncUpdates: (callback: SyncStatusListener) => {
+      syncListeners.push(callback);
+      callback(currentSyncStatus);
+      return () => {
+          syncListeners = syncListeners.filter(cb => cb !== callback);
+      };
+  },
+  
   subscribeToUserUpdates: (callback: UserUpdateListener) => {
       userListeners.push(callback);
       return () => {
@@ -271,8 +290,12 @@ export const storageService = {
       // Optimistic update for UI speed
       storageService.saveLocalUser(user); 
       
-      if (!isSupabaseConfigured()) return;
+      if (!isSupabaseConfigured()) {
+          notifySyncListeners('offline');
+          return;
+      }
 
+      notifySyncListeners('syncing');
       try {
           // Background Sync
           const updates = {
@@ -303,8 +326,10 @@ export const storageService = {
               // We use upsert to avoid duplicate key errors (user_id, word)
               await supabase.from('user_vocabulary').upsert(vocabPayload, { onConflict: 'user_id, word' });
           }
+          notifySyncListeners('synced');
       } catch (e) {
           console.warn("Sync error:", e);
+          notifySyncListeners('error');
       }
   },
 
@@ -350,45 +375,27 @@ export const storageService = {
           return false;
       }
       try {
-          // 1. Fetch Fresh Data FIRST
-          const { data: user, error: fetchError } = await supabase
-              .from('profiles')
-              .select('credits, role')
-              .eq('id', userId)
-              .single();
+          // Use Supabase RPC for atomic deduction
+          const { data, error } = await supabase.rpc('consume_credits', {
+              p_user_id: userId,
+              p_amount: amount
+          });
 
-          if (fetchError || !user) return false;
-          if (user.role === 'admin') return true;
+          if (error) {
+              console.warn("RPC consume_credits failed:", error);
+              return false;
+          }
 
-          // 2. Check Real DB Balance
-          if (user.credits < amount) {
-              // Force update local UI to show 0 if they thought they had credits
+          if (data === true) {
               const local = storageService.getLocalUser();
-              if (local) storageService.saveLocalUser({ ...local, credits: user.credits });
+              if (local) storageService.saveLocalUser({ ...local, credits: Math.max(0, local.credits - amount) });
+              return true;
+          } else {
+              // Insufficient funds
               return false;
           }
-
-          // 3. Perform Atomic Update with Optimistic Locking
-          // We ensure the credits haven't changed since our read
-          const newCredits = user.credits - amount;
-          const { data: updatedRows, error: updateError } = await supabase
-              .from('profiles')
-              .update({ credits: newCredits })
-              .eq('id', userId)
-              .eq('credits', user.credits) // Safety Check
-              .select();
-          
-          if (updateError || !updatedRows || updatedRows.length === 0) {
-              // Transaction failed (race condition), retry once or fail
-              return false;
-          }
-
-          // 4. Update Local UI only after success
-          const local = storageService.getLocalUser();
-          if (local) storageService.saveLocalUser({ ...local, credits: newCredits });
-          
-          return true;
-      } catch {
+      } catch (e) {
+          console.warn("Error deducting credits:", e);
           return false;
       }
   },
@@ -396,15 +403,14 @@ export const storageService = {
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
       if (!isSupabaseConfigured()) return false;
       try {
-          // Fetch current to allow atomic add
-          const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
-          if (!user) return false;
-
-          const newCredits = (user.credits || 0) + amount;
-          const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+          const { error } = await supabase.rpc('add_credits', {
+              p_user_id: userId,
+              p_amount: amount
+          });
           
           return !error;
-      } catch {
+      } catch (e) {
+          console.warn("Error adding credits:", e);
           return false;
       }
   },
@@ -803,6 +809,7 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
     
     if (isSupabaseConfigured()) {
+        notifySyncListeners('syncing');
         try {
             if (userId && prefs) {
                 const cleanLang = prefs.targetLanguage.split(' ')[0];
@@ -824,9 +831,13 @@ export const storageService = {
                     score: session.score
                 }).eq('id', session.id);
             }
+            notifySyncListeners('synced');
         } catch (e) {
             console.warn("Error saving session to Supabase:", e);
+            notifySyncListeners('error');
         }
+    } else {
+        notifySyncListeners('offline');
     }
   },
 

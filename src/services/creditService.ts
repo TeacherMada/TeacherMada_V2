@@ -19,28 +19,5 @@ export const creditService = {
 
   deduct: async (userId: string, amount: number): Promise<boolean> => {
     return await storageService.deductCredits(userId, amount);
-  },
-
-  isCertificateUnlocked: (certId: string): boolean => {
-    const unlocked = localStorage.getItem(`tm_unlocked_certs`);
-    if (!unlocked) return false;
-    try {
-      const parsed = JSON.parse(unlocked);
-      return parsed.includes(certId);
-    } catch {
-      return false;
-    }
-  },
-  
-  unlockCertificate: (certId: string) => {
-    const unlocked = localStorage.getItem(`tm_unlocked_certs`);
-    let parsed: string[] = [];
-    if (unlocked) {
-      try { parsed = JSON.parse(unlocked); } catch {}
-    }
-    if (!parsed.includes(certId)) {
-      parsed.push(certId);
-      localStorage.setItem(`tm_unlocked_certs`, JSON.stringify(parsed));
-    }
   }
 };

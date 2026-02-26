@@ -132,31 +132,31 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                     className="w-full h-full object-contain" 
                 />
              </div>
-             <div className="flex flex-col">
+             <div className="hidden md:flex flex-col">
                  <span className="text-xl md:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-indigo-700 dark:from-white dark:to-indigo-300 leading-none">TeacherMada</span>
              </div>
           </div>
           
-          <div className="flex gap-3 md:gap-4 items-center">
-              <div className="hidden sm:flex bg-slate-100 dark:bg-white/5 rounded-full p-1 border border-slate-200 dark:border-white/10">
+          <div className="flex gap-2 md:gap-4 items-center">
+              <div className="flex bg-slate-100 dark:bg-white/5 rounded-full p-1 border border-slate-200 dark:border-white/10">
                   <button 
                       onClick={() => setLanguage('fr')}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'fr' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                      className={`px-2 md:px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'fr' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
                   >
                       FR
                   </button>
                   <button 
                       onClick={() => setLanguage('mg')}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'mg' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
+                      className={`px-2 md:px-3 py-1 rounded-full text-[10px] font-bold transition-all ${language === 'mg' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600'}`}
                   >
                       MG
                   </button>
               </div>
               <button
                   onClick={toggleTheme}
-                  className="p-2.5 rounded-full hover:bg-slate-200/50 dark:hover:bg-white/10 transition-all text-slate-500 dark:text-slate-400"
+                  className="p-2 md:p-2.5 rounded-full hover:bg-slate-200/50 dark:hover:bg-white/10 transition-all text-slate-500 dark:text-slate-400"
               >
-                  {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                  {isDarkMode ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
               </button>
               {/* BOUTON INSTALLER (Visible seulement si l'app est installable) */}
               {deferredPrompt && (
@@ -170,7 +170,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
               )}
               <button 
                   onClick={onStart}
-                  className="px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
+                  className="px-4 md:px-5 py-2 md:py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs md:text-sm font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
               >
                   {t('common.start')}
               </button>

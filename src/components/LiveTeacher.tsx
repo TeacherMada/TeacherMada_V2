@@ -15,7 +15,7 @@ interface LiveTeacherProps {
 }
 
 // --- CONFIGURATION ---
-const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
 const COST_PER_MINUTE = CREDIT_COSTS.VOICE_CALL_PER_MINUTE; 
@@ -85,9 +85,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const processorRef = useRef<AudioWorkletNode | null>(null);
   const nextStartTimeRef = useRef(0);
   const isMountedRef = useRef(true);
+  const activeSessionRef = useRef<any>(null);
+  const isConnectedRef = useRef(false);
 
   useEffect(() => {
       isMountedRef.current = true;
@@ -162,8 +164,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           setSubStatus("Recherche serveur...");
           
-          const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
-          if (keys.length === 0) throw new Error("Aucune clé API configurée");
+          // Use GEMINI_API_KEY as per guidance
+          const apiKeyStr = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+          const keys = apiKeyStr.split(',').map(k => k.trim()).filter(k => k.length > 10);
+          
+          if (keys.length === 0) {
+              console.error("No API Key found in env vars");
+              throw new Error("Aucune clé API configurée");
+          }
 
           await connectWithRetry(keys, ctx);
 
@@ -180,6 +188,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       let lastError = null;
 
       for (const apiKey of keys) {
+          let isCurrentAttempt = true;
           try {
               console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
               const client = new GoogleGenAI({ apiKey });
@@ -214,18 +223,20 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       responseModalities: [Modality.AUDIO],
                       systemInstruction: { parts: [{ text: sysPrompt }] },
                       speechConfig: {
-                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
                       }
                   },
                   callbacks: {
                       onopen: () => {
-                          if (isMountedRef.current) {
+                          if (isMountedRef.current && isCurrentAttempt) {
+                              isConnectedRef.current = true;
                               setStatus('connected');
                               setSubStatus("En Ligne");
                               // Trigger auto start handled by user speaking first or system prompt behavior
                           }
                       },
                       onmessage: async (msg: any) => {
+                          if (!isCurrentAttempt) return;
                           const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                           if (audioData) {
                               setTeacherSpeaking(true);
@@ -241,24 +252,33 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                               }
                           }
                       },
-                      onclose: () => {
-                          console.log("Session closed remote");
-                          handleHangup();
-                      },
-                      onerror: (err) => {
-                          console.error("Session error", err);
+                      onclose: (e: any) => {
+                          if (!isCurrentAttempt) return;
+                          console.log("Session closed remote", e);
+                          cleanupAudio();
                           if (isMountedRef.current) {
                               setStatus('error');
-                              setSubStatus("Erreur session: " + (err.message || "Inconnue"));
+                              setSubStatus(`Connexion terminée (Code: ${e?.code || 'Inconnu'})`);
+                          }
+                      },
+                      onerror: (err) => {
+                          if (!isCurrentAttempt) return;
+                          console.error("Session error", err);
+                          cleanupAudio();
+                          if (isMountedRef.current) {
+                              setStatus('error');
+                              setSubStatus("Erreur de connexion au serveur vocal.");
                           }
                       }
                   }
               });
 
+              activeSessionRef.current = session;
               await startMicrophone(ctx, session);
               return;
 
           } catch (e: any) {
+              isCurrentAttempt = false;
               // CRITICAL: Do not retry if it's a microphone permission issue
               if (e.message.includes("Microphone") || e.message.includes("microphone") || e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
                   throw e;
@@ -299,13 +319,32 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           mediaStreamRef.current = stream;
 
           const source = ctx.createMediaStreamSource(stream);
-          const processor = ctx.createScriptProcessor(4096, 1, 1);
-          processorRef.current = processor;
+          
+          // AudioWorklet Implementation
+          const workletCode = `
+            class AudioCaptureProcessor extends AudioWorkletProcessor {
+              process(inputs, outputs, parameters) {
+                const input = inputs[0];
+                if (input && input.length > 0 && input[0].length > 0) {
+                  // Send a copy of the Float32Array to the main thread
+                  this.port.postMessage(input[0]);
+                }
+                return true;
+              }
+            }
+            registerProcessor('audio-capture-processor', AudioCaptureProcessor);
+          `;
+          const blob = new Blob([workletCode], { type: 'application/javascript' });
+          const workletUrl = URL.createObjectURL(blob);
+          await ctx.audioWorklet.addModule(workletUrl);
 
-          processor.onaudioprocess = (e) => {
-              if (isMuted) return;
+          const workletNode = new AudioWorkletNode(ctx, 'audio-capture-processor');
+          processorRef.current = workletNode;
 
-              const inputData = e.inputBuffer.getChannelData(0);
+          workletNode.port.onmessage = (e) => {
+              if (isMuted || !isConnectedRef.current) return;
+
+              const inputData = e.data as Float32Array;
               
               let sum = 0;
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
@@ -313,7 +352,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               setVolume(v => v * 0.8 + (rms * 100) * 0.2);
 
-              const downsampledData = downsampleBuffer(inputData, e.inputBuffer.sampleRate, INPUT_SAMPLE_RATE);
+              const downsampledData = downsampleBuffer(inputData, ctx.sampleRate, INPUT_SAMPLE_RATE);
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
@@ -326,10 +365,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               } catch (err) {}
           };
 
-          source.connect(processor);
+          source.connect(workletNode);
           const muteNode = ctx.createGain();
           muteNode.gain.value = 0;
-          processor.connect(muteNode);
+          workletNode.connect(muteNode);
           muteNode.connect(ctx.destination);
 
       } catch (e: any) {
@@ -356,15 +395,27 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
   };
 
+  const cleanupAudio = () => {
+      if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+          mediaStreamRef.current = null;
+      }
+      if (processorRef.current) {
+          processorRef.current.disconnect();
+          processorRef.current = null;
+      }
+      if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+      }
+  };
+
   const handleHangup = () => {
-      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
-      if (processorRef.current) processorRef.current.disconnect();
-      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
-      
-      mediaStreamRef.current = null;
-      processorRef.current = null;
-      audioContextRef.current = null;
-      
+      cleanupAudio();
+      if (activeSessionRef.current) {
+          try { activeSessionRef.current.close(); } catch(e) {}
+          activeSessionRef.current = null;
+      }
       if (isMountedRef.current && status !== 'error') onClose();
   };
 
