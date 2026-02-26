@@ -232,11 +232,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                               isConnectedRef.current = true;
                               setStatus('connected');
                               setSubStatus("En Ligne");
-                              // Trigger auto start handled by user speaking first or system prompt behavior
                           }
                       },
                       onmessage: async (msg: any) => {
-                          if (!isCurrentAttempt) return;
+                          if (!isCurrentAttempt || !isMountedRef.current) return;
                           const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                           if (audioData) {
                               setTeacherSpeaking(true);
@@ -272,6 +271,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       }
                   }
               });
+
+              if (!isMountedRef.current || (ctx.state as string) === 'closed') {
+                  session.close();
+                  return;
+              }
 
               activeSessionRef.current = session;
               await startMicrophone(ctx, session);
@@ -353,7 +357,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           `;
           const blob = new Blob([workletCode], { type: 'application/javascript' });
           const workletUrl = URL.createObjectURL(blob);
+          
+          // Check context state before adding module
+          if ((ctx.state as string) === 'closed') {
+              throw new Error("AudioContext is closed");
+          }
+          
           await ctx.audioWorklet.addModule(workletUrl);
+
+          // Check context state again after await
+          if ((ctx.state as string) === 'closed') {
+              throw new Error("AudioContext is closed");
+          }
 
           const workletNode = new AudioWorkletNode(ctx, 'audio-capture-processor');
           processorRef.current = workletNode;
