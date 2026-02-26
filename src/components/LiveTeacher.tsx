@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins, Globe, Zap } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Clock, Globe } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
+import { LIVE_MODELS, getApiKeys } from '../services/geminiService';
 
 interface LiveTeacherProps {
   user: UserProfile;
@@ -15,7 +16,6 @@ interface LiveTeacherProps {
 }
 
 // --- CONFIGURATION ---
-const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
 const COST_PER_MINUTE = CREDIT_COSTS.VOICE_CALL_PER_MINUTE; 
@@ -74,8 +74,6 @@ const floatTo16BitPCM = (input: Float32Array) => {
 };
 
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  if (!user) return null;
-
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
   const [volume, setVolume] = useState(0); 
@@ -91,6 +89,15 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const activeSessionRef = useRef<any>(null);
   const isConnectedRef = useRef(false);
 
+  const handleHangup = useCallback(() => {
+      cleanupAudio();
+      if (activeSessionRef.current) {
+          try { activeSessionRef.current.close(); } catch(_e) { /* ignore */ }
+          activeSessionRef.current = null;
+      }
+      if (isMountedRef.current && status !== 'error') onClose();
+  }, [status, onClose]);
+
   useEffect(() => {
       isMountedRef.current = true;
       startSession();
@@ -98,27 +105,23 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           isMountedRef.current = false;
           handleHangup();
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- TIMER & BILLING LOGIC ---
   useEffect(() => {
-      let interval: any;
+      let interval: ReturnType<typeof setInterval> | undefined;
       if (status === 'connected') {
           interval = setInterval(() => {
               setDuration(d => d + 1);
           }, 1000);
       }
-      return () => clearInterval(interval);
+      return () => {
+          if (interval) clearInterval(interval);
+      };
   }, [status]);
 
-  // Billing Effect : Triggered every 60s
-  useEffect(() => {
-      if (duration > 0 && duration % 60 === 0) {
-          processBilling();
-      }
-  }, [duration]);
-
-  const processBilling = async () => {
+  const processBilling = useCallback(async () => {
       const success = await creditService.deduct(user.id, COST_PER_MINUTE);
       if (success) {
           const updatedUser = await storageService.getUserById(user.id);
@@ -128,7 +131,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           notify("Crédits épuisés ! Fin de l'appel.", "error");
           handleHangup();
       }
-  };
+  }, [user.id, onUpdateUser, notify, handleHangup]);
+
+  // Billing Effect : Triggered every 60s
+  useEffect(() => {
+      if (duration > 0 && duration % 60 === 0) {
+          processBilling();
+      }
+  }, [duration, processBilling]);
 
   const startSession = async () => {
       // 1. Check & Deduct for First Minute immediately
@@ -164,12 +174,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           setSubStatus("Recherche serveur...");
           
-          // Use GEMINI_API_KEY as per guidance
-          const apiKeyStr = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
-          const keys = apiKeyStr.split(',').map(k => k.trim()).filter(k => k.length > 10);
+          const keys = getApiKeys();
           
           if (keys.length === 0) {
-              console.error("No API Key found in env vars");
+              console.error("No API Key found");
               throw new Error("Aucune clé API configurée");
           }
 
@@ -187,112 +195,119 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const connectWithRetry = async (keys: string[], ctx: AudioContext) => {
       let lastError = null;
 
+      // ROTATION NIVEAU 1 : CLÉS API
       for (const apiKey of keys) {
-          let isCurrentAttempt = true;
-          try {
-              console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
-              const client = new GoogleGenAI({ apiKey });
-              
-              // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
-              const sysPrompt = `
-              IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
-              CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
-              
-              AUDIO INSTRUCTIONS:
-              - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
-              - Use a warm, patient, and encouraging tone.
-              
-              LANGUAGE RULES:
-              1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
-              2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
-              
-              CORRECTION PROTOCOL (CRITICAL):
-              When the user makes a mistake (grammar, pronunciation, structure):
-              1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
-              2. **✅ CORRECT**: Clearly state the correct version of the phrase.
-              3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
-              
-              GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
-              
-              START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
-              `;
+          // ROTATION NIVEAU 2 : MODÈLES LIVE
+          for (const model of LIVE_MODELS) {
+              let isCurrentAttempt = true;
+              try {
+                  console.log(`Tentative Live [Key: ...${apiKey.slice(-4)}] [Model: ${model}]`);
+                  const client = new GoogleGenAI({ apiKey });
+                  
+                  // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
+                  const sysPrompt = `
+                  IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
+                  CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
+                  
+                  AUDIO INSTRUCTIONS:
+                  - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
+                  - Use a warm, patient, and encouraging tone.
+                  
+                  LANGUAGE RULES:
+                  1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
+                  2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
+                  
+                  CORRECTION PROTOCOL (CRITICAL):
+                  When the user makes a mistake (grammar, pronunciation, structure):
+                  1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
+                  2. **✅ CORRECT**: Clearly state the correct version of the phrase.
+                  3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
+                  
+                  GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
+                  
+                  START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
+                  `;
 
-              const session = await client.live.connect({
-                  model: LIVE_MODEL,
-                  config: {
-                      responseModalities: [Modality.AUDIO],
-                      systemInstruction: { parts: [{ text: sysPrompt }] },
-                      speechConfig: {
-                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-                      }
-                  },
-                  callbacks: {
-                      onopen: () => {
-                          if (isMountedRef.current && isCurrentAttempt) {
-                              isConnectedRef.current = true;
-                              setStatus('connected');
-                              setSubStatus("En Ligne");
+                  const session = await client.live.connect({
+                      model: model,
+                      config: {
+                          responseModalities: [Modality.AUDIO],
+                          systemInstruction: { parts: [{ text: sysPrompt }] },
+                          speechConfig: {
+                              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
                           }
                       },
-                      onmessage: async (msg: any) => {
-                          if (!isCurrentAttempt || !isMountedRef.current) return;
-                          const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                          if (audioData) {
-                              setTeacherSpeaking(true);
-                              setSubStatus("TeacherMada parle...");
-                              await playAudioChunk(audioData, ctx);
-                          }
-                          
-                          if (msg.serverContent?.turnComplete) {
-                              setTeacherSpeaking(false);
-                              setSubStatus("Je vous écoute...");
-                              if (nextStartTimeRef.current < ctx.currentTime) {
-                                  nextStartTimeRef.current = ctx.currentTime;
+                      callbacks: {
+                          onopen: () => {
+                              if (isMountedRef.current && isCurrentAttempt) {
+                                  isConnectedRef.current = true;
+                                  setStatus('connected');
+                                  setSubStatus("En Ligne");
+                              }
+                          },
+                          onmessage: async (msg: any) => {
+                              if (!isCurrentAttempt || !isMountedRef.current) return;
+                              const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                              if (audioData) {
+                                  setTeacherSpeaking(true);
+                                  setSubStatus("TeacherMada parle...");
+                                  await playAudioChunk(audioData, ctx);
+                              }
+                              
+                              if (msg.serverContent?.turnComplete) {
+                                  setTeacherSpeaking(false);
+                                  setSubStatus("Je vous écoute...");
+                                  if (nextStartTimeRef.current < ctx.currentTime) {
+                                      nextStartTimeRef.current = ctx.currentTime;
+                                  }
+                              }
+                          },
+                          onclose: (e: any) => {
+                              if (!isCurrentAttempt) return;
+                              console.log("Session closed remote", e);
+                              cleanupAudio();
+                              if (isMountedRef.current) {
+                                  setStatus('error');
+                                  setSubStatus(`Connexion terminée (Code: ${e?.code || 'Inconnu'})`);
+                              }
+                          },
+                          onerror: (err) => {
+                              if (!isCurrentAttempt) return;
+                              console.error("Session error", err);
+                              cleanupAudio();
+                              if (isMountedRef.current) {
+                                  setStatus('error');
+                                  setSubStatus("Erreur de connexion au serveur vocal.");
                               }
                           }
-                      },
-                      onclose: (e: any) => {
-                          if (!isCurrentAttempt) return;
-                          console.log("Session closed remote", e);
-                          cleanupAudio();
-                          if (isMountedRef.current) {
-                              setStatus('error');
-                              setSubStatus(`Connexion terminée (Code: ${e?.code || 'Inconnu'})`);
-                          }
-                      },
-                      onerror: (err) => {
-                          if (!isCurrentAttempt) return;
-                          console.error("Session error", err);
-                          cleanupAudio();
-                          if (isMountedRef.current) {
-                              setStatus('error');
-                              setSubStatus("Erreur de connexion au serveur vocal.");
-                          }
                       }
+                  });
+
+                  if (!isMountedRef.current || (ctx.state as string) === 'closed') {
+                      session.close();
+                      return;
                   }
-              });
 
-              if (!isMountedRef.current || (ctx.state as string) === 'closed') {
-                  session.close();
+                  activeSessionRef.current = session;
+                  await startMicrophone(ctx, session);
                   return;
+
+              } catch (e: any) {
+                  isCurrentAttempt = false;
+                  // CRITICAL: Do not retry if it's a microphone permission issue
+                  if (e.message?.includes("Microphone") || e.message?.includes("microphone") || e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
+                      throw e;
+                  }
+
+                  console.warn(`Echec connexion [Key: ...${apiKey.slice(-4)}] [Model: ${model}]`, e);
+                  lastError = e;
+                  // Continuer vers le modèle suivant de la même clé
               }
-
-              activeSessionRef.current = session;
-              await startMicrophone(ctx, session);
-              return;
-
-          } catch (e: any) {
-              isCurrentAttempt = false;
-              // CRITICAL: Do not retry if it's a microphone permission issue
-              if (e.message.includes("Microphone") || e.message.includes("microphone") || e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
-                  throw e;
-              }
-
-              console.warn("Echec connexion clé", apiKey.slice(-4), e);
-              lastError = e;
           }
+          // Si on arrive ici, tous les modèles ont échoué pour cette clé.
+          // On passe à la clé suivante (boucle externe).
       }
-      throw lastError || new Error("Serveurs saturés (Toutes clés HS)");
+      throw lastError || new Error("Serveurs saturés (Toutes clés/modèles HS)");
   };
 
   const startMicrophone = async (ctx: AudioContext, session: any) => {
@@ -422,8 +437,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           source.start(startTime);
           nextStartTimeRef.current = startTime + buffer.duration;
-      } catch (e) {
-          console.error("Playback Error", e);
+      } catch (_e) {
+          console.error("Playback Error", _e);
       }
   };
 
@@ -442,14 +457,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
   };
 
-  const handleHangup = () => {
+  const handleHangup = useCallback(() => {
       cleanupAudio();
       if (activeSessionRef.current) {
-          try { activeSessionRef.current.close(); } catch(e) {}
+          try { activeSessionRef.current.close(); } catch(_e) { /* ignore */ }
           activeSessionRef.current = null;
       }
       if (isMountedRef.current && status !== 'error') onClose();
-  };
+  }, [status, onClose]);
 
   // UI SCALING
   const scale = 1 + (volume / 20); 

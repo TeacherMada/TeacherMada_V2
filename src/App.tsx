@@ -198,7 +198,7 @@ const AppContent: React.FC = () => {
       setCurrentSession(null);
   };
 
-  const handleOnboardingComplete = async (prefs: any) => {
+  const handleOnboardingComplete = async (prefs: UserProfile['preferences']) => {
     if (!user) return;
     const selectedLang = prefs.targetLanguage;
     const history = user.preferences?.history || {};
@@ -241,7 +241,7 @@ const AppContent: React.FC = () => {
           } else {
               toast.error("Impossible de générer des exercices (Contexte insuffisant ou erreur).");
           }
-      } catch (e) {
+      } catch (_e) {
           toast.error("Erreur lors de la génération.");
       } finally {
           setIsGeneratingExercise(false);

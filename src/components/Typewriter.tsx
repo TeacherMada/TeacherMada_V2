@@ -16,7 +16,16 @@ const Typewriter: React.FC<TypewriterProps> = ({ text, speed = 10, onComplete })
     // If text is very long, render it in chunks to avoid extremely slow typing
     const chunkSize = 5; 
     
+    // Reset displayed text at the start of the interval to avoid synchronous setState in effect
+    let hasReset = false;
+
     const intervalId = setInterval(() => {
+      if (!hasReset) {
+          setDisplayedText('');
+          hasReset = true;
+          return;
+      }
+
       if (index < text.length) {
         setDisplayedText((prev) => prev + text.slice(index, index + chunkSize));
         index += chunkSize;
@@ -29,12 +38,7 @@ const Typewriter: React.FC<TypewriterProps> = ({ text, speed = 10, onComplete })
     return () => clearInterval(intervalId);
   }, [text, speed, onComplete]);
 
-  // If the text updates entirely, reset (simple handling)
-  useEffect(() => {
-      setDisplayedText('');
-  }, [text]);
-
-  return <MarkdownRenderer content={displayedText || text} />; // Fallback to full text if logic fails or instant render needed
+  return <MarkdownRenderer content={displayedText} />; 
 };
 
 export default Typewriter;

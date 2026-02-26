@@ -22,14 +22,6 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
   const currentExercise = exercises[currentIndex];
   const progress = ((currentIndex) / exercises.length) * 100;
 
-  // Reset state when moving to next question
-  useEffect(() => {
-    setSelectedAnswer(null);
-    setInputValue('');
-    setIsChecked(false);
-    setIsCorrect(false);
-  }, [currentIndex]);
-
   const normalizeText = (text: string) => text.trim().toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "");
 
   const handleCheck = () => {
@@ -75,6 +67,10 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
   const handleNext = () => {
     if (currentIndex < exercises.length - 1) {
       setCurrentIndex(prev => prev + 1);
+      setSelectedAnswer(null);
+      setInputValue('');
+      setIsChecked(false);
+      setIsCorrect(false);
     } else {
       setShowSummary(true);
     }

@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { CheckCircle2 } from 'lucide-react';
 
 // --- DATA ---
 const MOCK_USERS = [
@@ -63,9 +62,9 @@ const TypewriterMessage = ({ text, onComplete }: { text: string, onComplete: () 
 // --- MAIN COMPONENT ---
 const LiveChatDemo: React.FC = () => {
     const [messages, setMessages] = useState<typeof MOCK_USERS>([]);
-    const [queueIndex, setQueueIndex] = useState(0);
     const [isTyping, setIsTyping] = useState(false);
     const isMounted = useRef(true);
+    const queueIndexRef = useRef(0);
 
     useEffect(() => {
         isMounted.current = true;
@@ -75,20 +74,18 @@ const LiveChatDemo: React.FC = () => {
     const addNextMessage = useCallback(() => {
         if (!isMounted.current) return;
         
-        setQueueIndex(prevIndex => {
-            const nextUser = MOCK_USERS[prevIndex % MOCK_USERS.length];
-            
-            setMessages(prevMessages => {
-                // Generate a truly unique ID to prevent key collisions
-                const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const newHistory = [...prevMessages, { ...nextUser, id: uniqueId }];
-                if (newHistory.length > 3) return newHistory.slice(newHistory.length - 3);
-                return newHistory;
-            });
-            
-            setIsTyping(true);
-            return prevIndex + 1;
+        const nextUser = MOCK_USERS[queueIndexRef.current % MOCK_USERS.length];
+        queueIndexRef.current++;
+        
+        setMessages(prevMessages => {
+            // Generate a truly unique ID to prevent key collisions
+            const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const newHistory = [...prevMessages, { ...nextUser, id: uniqueId }];
+            if (newHistory.length > 3) return newHistory.slice(newHistory.length - 3);
+            return newHistory;
         });
+        
+        setIsTyping(true);
     }, []);
 
     const handleTypingComplete = useCallback(() => {
@@ -104,9 +101,12 @@ const LiveChatDemo: React.FC = () => {
 
     // Initial start
     useEffect(() => {
-        if (messages.length === 0 && !isTyping) {
-            addNextMessage();
-        }
+        const timer = setTimeout(() => {
+            if (isMounted.current && messages.length === 0 && !isTyping) {
+                addNextMessage();
+            }
+        }, 500);
+        return () => clearTimeout(timer);
     }, [addNextMessage, messages.length, isTyping]);
 
     return (

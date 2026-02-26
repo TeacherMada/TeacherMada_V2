@@ -28,6 +28,26 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   const [activeLegal, setActiveLegal] = useState<'privacy' | 'terms' | null>(null);
   const [forgotData, setForgotData] = useState({ username: '', phone: '', email: '' });
 
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!forgotData.email) return;
+      
+      setIsLoading(true);
+      try {
+          const result = await storageService.resetPassword(forgotData.email);
+          if (result.success) {
+              notify(t('auth.reset_email_sent') || "Email de réinitialisation envoyé !", 'success');
+              setShowForgotModal(false);
+          } else {
+              notify(result.error || "Erreur lors de l'envoi", 'error');
+          }
+      } catch (error) {
+          notify("Erreur technique", 'error');
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -91,7 +111,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
       <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-8 pt-0 transform transition-all duration-500 animate-fade-in relative overflow-visible mt-16 border border-slate-100 dark:border-slate-800">
         
-        <div className="flex flex-col items-center justify-center -mt-16 mb-6 relative z-20">
+          <div className="flex flex-col items-center justify-center -mt-16 mb-6 relative z-20">
           <div className="group w-28 h-28 bg-white dark:bg-slate-800 rounded-3xl shadow-[0_20px_40px_-10px_rgba(79,70,229,0.3)] flex items-center justify-center relative z-20 border-4 border-slate-50 dark:border-slate-900 transform transition-transform duration-500 hover:scale-105 hover:-rotate-1">
              <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-2xl"></div>
              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }} alt="Logo" className="w-full h-full object-contain p-4 drop-shadow-sm" />
@@ -101,6 +121,43 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
               {isRegistering ? t('auth.create_account') : t('auth.welcome_back')}
           </h1>
         </div>
+
+        {showForgotModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-800 relative">
+                    <button onClick={() => setShowForgotModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="w-5 h-5" /></button>
+                    
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">{t('auth.reset_password') || "Réinitialiser le mot de passe"}</h2>
+                    <p className="text-sm text-slate-500 mb-6">{t('auth.reset_password_desc') || "Entrez votre email ou identifiant pour recevoir un lien de réinitialisation."}</p>
+                    
+                    <form onSubmit={handleForgotSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">{t('auth.email_or_username_label') || "Email ou Identifiant"}</label>
+                            <div className="relative group">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Mail className="w-full h-full" /></div>
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={forgotData.email} 
+                                    onChange={(e) => setForgotData({...forgotData, email: e.target.value})} 
+                                    placeholder={t('auth.reset_placeholder') || "votre@email.com ou identifiant"}
+                                    className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" 
+                                />
+                            </div>
+                        </div>
+                        
+                        <button type="submit" disabled={isLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+                            {isLoading ? <span className="animate-pulse">Envoi...</span> : (
+                                <>
+                                    <span>Envoyer le lien</span>
+                                    <Send className="w-4 h-4" />
+                                </>
+                            )}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        )}
 
         <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 relative z-10">
             <button onClick={() => { setIsRegistering(false); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>{t('auth.login')}</button>
@@ -151,6 +208,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Lock className="w-full h-full" /></div>
                 <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('auth.password_placeholder')} className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400 text-sm" />
             </div>
+            {!isRegistering && (
+                <div className="flex justify-end mt-2">
+                    <button type="button" onClick={() => setShowForgotModal(true)} className="text-xs text-indigo-500 hover:text-indigo-600 font-medium">
+                        {t('auth.forgot_password') || "Mot de passe oublié ?"}
+                    </button>
+                </div>
+            )}
           </div>
 
           <button type="submit" disabled={isLoading} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed group transform active:scale-[0.98]">

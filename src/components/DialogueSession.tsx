@@ -4,7 +4,7 @@ import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
-import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart, ArrowRight, Settings2, Globe, ChevronRight } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, ShoppingBag, Plane, Stethoscope, Utensils, AlertTriangle, Loader2, Play, Briefcase, ArrowLeft, Sparkles, Languages, BarChart, ArrowRight, Settings2, Globe } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -71,13 +71,15 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
   // Timer Logic
   useEffect(() => {
-    let interval: any;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (step === 'chat' && !finalScore && !isInitializing) {
         interval = setInterval(() => {
             setSecondsActive(prev => prev + 1);
         }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => {
+        if (interval) clearInterval(interval);
+    };
   }, [step, finalScore, isInitializing]);
 
   useEffect(() => {
@@ -161,12 +163,12 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
       recognition.onstart = () => setIsListening(true);
       recognition.onend = () => setIsListening(false);
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: { error: string }) => {
           console.error("Speech error", event.error);
           setIsListening(false);
           notify("Erreur micro.", 'error');
       };
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => {
           const transcript = event.results[0][0].transcript;
           if (transcript) {
               setInput(prev => prev + (prev ? ' ' : '') + transcript);
@@ -218,8 +220,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: result.aiReply, timestamp: Date.now() };
           setMessages(prev => [...prev, aiMsg]);
-      } catch (e) {
-          console.error(e);
+      } catch (_e) {
+          console.error(_e);
           notify("Erreur de connexion", 'error');
       } finally {
           setIsLoading(false);
@@ -252,7 +254,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           await storageService.saveUserProfile(userWithStats);
           onUpdateUser(userWithStats);
 
-      } catch (e) {
+      } catch (_e) {
           setFinalScore({ score: 0, feedback: "Erreur lors de l'évaluation." });
       } finally {
           setIsLoading(false);

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, Hash, Wifi, Sparkles, TrendingUp } from 'lucide-react';
+import { X, Smartphone, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, TrendingUp } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -22,7 +22,6 @@ const OPERATOR_THEMES = {
 
 const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const { t } = useTranslation();
-  if (!user) return null;
 
   const [activeTab, setActiveTab] = useState<'money' | 'coupon'>('money');
   
@@ -46,7 +45,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   // Derived
   const numericAmount = parseInt(amount.replace(/\D/g, '') || '0');
   const credits = Math.floor(numericAmount / CREDIT_PRICE_ARIARY);
-  const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, '');
+  const cleanUsername = user?.username?.replace(/[^a-zA-Z0-9]/g, '') || '';
   const motifCode = `Crd_${cleanUsername}`.substring(0, 15);
 
   const currentTheme = OPERATOR_THEMES[selectedOperator];
@@ -63,6 +62,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
           setShowInputGuide(false);
       }
   }, [activeTab, step]);
+
+  if (!user) return null;
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -92,8 +93,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       setTimeout(() => {
         onClose();
       }, 3000);
-    } catch (e) {
-      console.error(e);
+    } catch (_e) {
+      console.error(_e);
     } finally {
       setIsSubmitting(false);
     }
@@ -115,7 +116,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
         setCouponStatus('error');
         setCouponMessage(result.message || t('payment.invalid_code'));
       }
-    } catch (e) {
+    } catch (_e) {
       setCouponStatus('error');
       setCouponMessage(t('common.connection_error'));
     }
@@ -401,7 +402,14 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   );
 };
 
-const OperatorMiniBtn = ({ name, active, color, onClick }: any) => (
+interface OperatorMiniBtnProps {
+    name: string;
+    active: boolean;
+    color: string;
+    onClick: () => void;
+}
+
+const OperatorMiniBtn = ({ name, active, color, onClick }: OperatorMiniBtnProps) => (
     <button 
         onClick={onClick}
         className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${active ? `border-${color.split('-')[1]}-500 bg-white dark:bg-slate-800 shadow-md transform scale-105` : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 opacity-60 hover:opacity-100'}`}

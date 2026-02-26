@@ -111,6 +111,40 @@ export const storageService = {
 
   // --- AUTH ---
   
+  resetPassword: async (identifier: string): Promise<{success: boolean, error?: string}> => {
+    if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
+    
+    let email = identifier.trim();
+
+    // Si ce n'est pas un email, on cherche l'email associé au username
+    if (!email.includes('@')) {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('email')
+                .eq('username', email)
+                .single();
+            
+            if (error || !data || !data.email) {
+                return { success: false, error: "Utilisateur introuvable." };
+            }
+            email = data.email;
+        } catch (e) {
+            return { success: false, error: "Erreur technique lors de la recherche." };
+        }
+    }
+
+    try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin,
+        });
+        if (error) return { success: false, error: error.message };
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+  },
+
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
     try {

@@ -17,13 +17,16 @@ interface Props {
 }
 
 const ExamHub: React.FC<Props> = ({ user, onClose, onUpdateUser, onShowPayment }) => {
-    const { t, language, setLanguage } = useTranslation();
-    if (!user) return null;
+    const { t, setLanguage } = useTranslation();
+    const language = useTranslation().language;
+
     const [view, setView] = useState<'hub' | 'runner' | 'result'>('hub');
     const [loading, setLoading] = useState(false);
     const [currentExam, setCurrentExam] = useState<SmartExam | null>(null);
     const [result, setResult] = useState<ExamResultDetailed | null>(null);
     const [pendingExamType, setPendingExamType] = useState<ExamType | null>(null);
+
+    if (!user) return null;
 
     const handleStart = async (type: ExamType) => {
         const cost = type === 'certification' ? CREDIT_COSTS.EXAM : CREDIT_COSTS.DIAGNOSTIC;

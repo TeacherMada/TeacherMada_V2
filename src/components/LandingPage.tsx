@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download } from 'lucide-react';
+import { ArrowRight, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Facebook, GraduationCap, MessageCircle, Star, BookOpen, Download } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { LiveVoiceSection, DynamicDialoguesSection, ImmersiveActionSection, CertificateSection } from './LandingSections';
 import { storageService } from '../services/storageService';
@@ -38,7 +38,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
     window.addEventListener('scroll', handleScroll);
     
     // LOGIQUE PWA : On écoute l'événement 'beforeinstallprompt'
-    const handleBeforeInstallPrompt = (e: Event) => {
+    const handleBeforeInstallPrompt = (e: any) => {
         // 1. On empêche la mini-barre par défaut de s'afficher (sur mobile)
         e.preventDefault();
         // 2. On sauvegarde l'événement pour l'utiliser plus tard lors du clic sur notre bouton
@@ -61,7 +61,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
         setFadeKey((prev) => prev + 1);
     }, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [WORDS.length]);
 
   // Real-time Visitor Simulation & Data Fetching
   useEffect(() => {
@@ -241,7 +241,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                     <div className="relative z-10 w-full h-full flex items-center justify-center animate-float">
                          <img 
                             src="https://i.ibb.co/B2XmRwmJ/logo.png" 
-                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
+                            onError={(e) => { (e.target as HTMLImageElement).onerror = null; (e.target as HTMLImageElement).src = '/logo.svg'; }}
                             alt="TeacherMada Mascot" 
                             className="w-full h-full object-contain drop-shadow-2xl scale-[1.4] -translate-y-4" 
                          />
@@ -419,7 +419,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
                    <img 
                         src="https://i.ibb.co/B2XmRwmJ/logo.png" 
-                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
+                        onError={(e) => { (e.target as HTMLImageElement).onerror = null; (e.target as HTMLImageElement).src = '/logo.svg'; }}
                         alt="TeacherMada" 
                         className="w-full h-full object-cover" 
                    />

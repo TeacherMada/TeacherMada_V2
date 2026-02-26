@@ -29,8 +29,15 @@ const AUDIO_MODELS = [
     'gemini-2.5-flash-preview-tts' // Retry same model multiple times
 ];
 
+// Ordre de priorité des modèles (Live Audio)
+export const LIVE_MODELS = [
+    'gemini-2.5-flash-native-audio-preview-09-2025',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash-lite-preview-02-05'
+];
+
 // Récupération des clés API
-const getApiKeys = () => {
+export const getApiKeys = () => {
   const rawKey = (import.meta as any).env.VITE_GOOGLE_API_KEY || (typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : "") || "";
   return rawKey.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 10);
 };

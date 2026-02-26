@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag, Info, Shield, Loader2, Trash2 } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, MessageSquare, Plus, Minus, RefreshCw, Banknote, Shield, Loader2, Trash2, CheckCircle, X, Globe, Info } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -30,11 +30,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    refreshData();
-  }, []);
-
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
         // Trigger auto cleanup of old requests
@@ -50,12 +46,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
         setUsers(fetchedUsers || []);
         setRequests(fetchedRequests || []);
         setSettings(fetchedSettings);
-    } catch (e) {
+    } catch (_e) {
         notify("Erreur lors du chargement des données. Vérifiez la connexion.", 'error');
     } finally {
         setIsLoading(false);
     }
-  };
+  }, [notify]);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   const handleManualCreditChange = (userId: string, val: string) => {
       setManualCreditInputs(prev => ({ ...prev, [userId]: val }));
@@ -140,7 +140,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   // --- COUPON MANAGEMENT ---
   const handleAddCoupon = async () => {
       // 1. Sanitize Input: Prevent users from pasting JSON or weird characters
-      let rawCode = newTransactionRef.trim();
+      const rawCode = newTransactionRef.trim();
       
       // Basic sanitization
       if (rawCode.startsWith('{') || rawCode.includes('"') || rawCode.length > 30) {
@@ -467,7 +467,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   );
 };
 
-const Tab = ({ active, onClick, icon, label, count }: any) => (
+interface TabProps {
+    active: boolean;
+    onClick: () => void;
+    icon: React.ReactNode;
+    label: string;
+    count?: number;
+}
+
+const Tab = ({ active, onClick, icon, label, count }: TabProps) => (
     <button onClick={onClick} className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black whitespace-nowrap transition-all ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-200 dark:border-white/5'}`}>
         {icon} {label} {count !== undefined && count > 0 && <span className="bg-white/30 px-2 py-0.5 rounded-full text-[10px]">{count}</span>}
     </button>

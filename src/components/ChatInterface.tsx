@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Languages, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, ChevronUp, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech, executeWithRotation, TEXT_MODELS } from '../services/geminiService';
 import { storageService, SyncStatus } from '../services/storageService';
@@ -37,7 +37,16 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
     return buffer;
 }
 
-// --- ChatInput Component ---
+interface ChatInputProps {
+    input: string;
+    setInput: (val: string) => void;
+    handleSend: () => void;
+    handleTranslateInput: () => void;
+    handleVoiceCallClick: () => void;
+    isLowCredits: boolean;
+    t: (key: string, options?: any) => string;
+}
+
 const ChatInput = React.memo(({ 
     input, 
     setInput, 
@@ -46,7 +55,7 @@ const ChatInput = React.memo(({
     handleVoiceCallClick, 
     isLowCredits, 
     t 
-}: any) => {
+}: ChatInputProps) => {
     return (
         <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
             <button onClick={handleVoiceCallClick} className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] animate-pulse hover:scale-110 transition-transform active:scale-95 border-2 border-white/20" title="Démarrer Appel Vocal">
@@ -98,10 +107,9 @@ const ChatInterface: React.FC<Props> = ({
   onStartPractice, onStartExercise, onStartVoiceCall, onStartExam,
   notify, onShowPayment, onChangeCourse
 }) => {
-  const { t, language } = useTranslation();
-  if (!user) return null;
+  const { t } = useTranslation();
 
-  const LOADING_PHRASES = [
+  const LOADING_PHRASES = useMemo(() => [
     t('chat.teacher_thinking'),
     t('chat.processing'),
     t('chat.recording'),
@@ -109,7 +117,7 @@ const ChatInterface: React.FC<Props> = ({
     t('chat.drafting'),
     t('chat.correcting'),
     t('chat.searching')
-  ];
+  ], [t]);
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
@@ -125,18 +133,17 @@ const ChatInterface: React.FC<Props> = ({
   const [showNextInput, setShowNextInput] = useState(false);
   const [nextLessonInput, setNextLessonInput] = useState('');
   const [showStartButton, setShowStartButton] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
-  // Speech Recognition removed
-
 
   // Periodic Intelligence Analysis
   useEffect(() => {
-      if (messages.length > 0 && messages.length % 6 === 0) {
+      if (!user || messages.length === 0) return;
+      if (messages.length % 6 === 0) {
           // Run in background without blocking UI
           intelligenceService.consolidateMemory(user, messages).then(mem => {
              if(mem) onUpdateUser({...user, aiMemory: mem});
@@ -145,11 +152,12 @@ const ChatInterface: React.FC<Props> = ({
              if(prof) onUpdateUser({...user, learningProfile: prof});
           });
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
   // Loading Text Cycle
   useEffect(() => {
-    let interval: any;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isStreaming) {
       setLoadingText(LOADING_PHRASES[0]);
       let index = 0;
@@ -158,12 +166,14 @@ const ChatInterface: React.FC<Props> = ({
         setLoadingText(LOADING_PHRASES[index]);
       }, 2500);
     }
-    return () => clearInterval(interval);
-  }, [isStreaming]);
+    return () => {
+        if (interval) clearInterval(interval);
+    };
+  }, [isStreaming, LOADING_PHRASES]);
 
   const stopSpeaking = () => {
       if (currentSource) {
-          try { currentSource.stop(); } catch (e) {}
+          try { currentSource.stop(); } catch (_e) { /* ignore */ }
           setCurrentSource(null);
       }
       setSpeakingMessageId(null);
@@ -171,6 +181,7 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const playMessageAudio = async (text: string, id: string, cost: number = CREDIT_COSTS.AUDIO_MESSAGE) => {
+      if (!user) return;
       if (speakingMessageId === id) {
           stopSpeaking();
           return;
@@ -192,7 +203,8 @@ const ChatInterface: React.FC<Props> = ({
           
           let ctx = audioContext;
           if (!ctx) {
-              ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+              ctx = new AudioContextClass({sampleRate: 24000});
               setAudioContext(ctx);
           }
           if (ctx.state === 'suspended') await ctx.resume();
@@ -213,6 +225,7 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleVoiceCallClick = async () => {
+      if (!user) return;
       const allowed = await creditService.checkBalance(user.id, CREDIT_COSTS.VOICE_CALL_PER_MINUTE); 
       if (!allowed) {
           notify(t('chat.voice_call_min_credits', { cost: CREDIT_COSTS.VOICE_CALL_PER_MINUTE }), "error");
@@ -223,14 +236,14 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleTranslateInput = async () => {
-      if (!input.trim()) return;
+      if (!user || !input.trim()) return;
       
       const targetLang = user.preferences?.targetLanguage || 'English';
       const prompt = `Translate the following text to ${targetLang}. Return ONLY the translated text, nothing else. Text: "${input}"`;
       
       try {
           setIsStreaming(true);
-          const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
+          const response = await executeWithRotation(TEXT_MODELS, async (ai) => {
               return await ai.models.generateContent({
                   model: 'gemini-flash-lite-latest',
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
@@ -240,7 +253,7 @@ const ChatInterface: React.FC<Props> = ({
           if (response.text) {
               setInput(response.text.trim());
           }
-      } catch (e) {
+      } catch (_e) {
           notify(t('chat.translation_error'), "error");
       } finally {
           setIsStreaming(false);
@@ -248,17 +261,19 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const currentLessonNum = useMemo(() => {
+      if (!user) return 1;
       const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
           const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) return parseInt(match[1], 10);
       }
       return (user.stats.lessonsCompleted || 0) + 1;
-  }, [messages, user.stats.lessonsCompleted]);
+  }, [messages, user]);
 
   const currentLessonTitle = `${t('dashboard.lessons')} ${currentLessonNum}`;
 
   useEffect(() => {
+      if (!user) return;
       if (messages.length === 0) {
           const targetLang = user.preferences?.targetLanguage;
           const level = user.preferences?.level;
@@ -276,11 +291,11 @@ const ChatInterface: React.FC<Props> = ({
           setMessages([initialMsg]);
           setShowStartButton(true);
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [unreadCount, setUnreadCount] = useState(0);
-
   useEffect(() => {
+      if (!user) return;
       const checkNotifs = async () => {
           const count = await storageService.getUnreadCount(user.id);
           setUnreadCount(count);
@@ -293,6 +308,7 @@ const ChatInterface: React.FC<Props> = ({
 
   // Listen for updates from dashboard
   useEffect(() => {
+      if (!user) return;
       const unsub = storageService.subscribeToUserUpdates((updated) => {
           if (updated.id === user.id) {
               onUpdateUser(updated);
@@ -327,6 +343,7 @@ const ChatInterface: React.FC<Props> = ({
   }, [audioContext]);
 
   const progressData = useMemo(() => {
+      if (!user) return { percentage: 0, nextLevel: 'A1', currentLevel: 'A1', completed: 0, total: 50 };
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
       const currentLevel = user.preferences?.level || 'A1';
       const currentIndex = levels.indexOf(currentLevel);
@@ -338,17 +355,18 @@ const ChatInterface: React.FC<Props> = ({
       const percentage = Math.min((effectiveCompleted / lessonsPerLevel) * 100, 100);
       
       return { percentage: Math.round(percentage), nextLevel, currentLevel, completed: effectiveCompleted, total: lessonsPerLevel };
-  }, [user.preferences?.level, user.stats.lessonsCompleted, currentLessonNum]);
+  }, [user, currentLessonNum]);
 
   const userFlagUrl = useMemo(() => {
+      if (!user) return '';
       const lang = user.preferences?.targetLanguage || '';
       return getFlagUrl(lang.split(' ')[0]);
-  }, [user.preferences?.targetLanguage]);
+  }, [user]);
 
-  const isLowCredits = user.credits <= 0;
+  const isLowCredits = user?.credits <= 0;
 
   const processMessage = async (text: string, isAuto: boolean = false) => {
-    if (isStreaming) return;
+    if (!user || isStreaming) return;
     setShowStartButton(false);
 
     const canRequest = await creditService.checkBalance(user.id, CREDIT_COSTS.LESSON);
@@ -394,7 +412,7 @@ const ChatInterface: React.FC<Props> = ({
           }
       });
 
-    } catch (e) {
+    } catch (_e) {
       notify(t('chat.connection_error'), "error");
     } finally {
       setIsStreaming(false);
@@ -403,11 +421,13 @@ const ChatInterface: React.FC<Props> = ({
 
   const handleSend = () => { if (input.trim()) processMessage(input); };
   const handleStartCourse = () => {
+      if (!user) return;
       const isMalagasy = user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy;
       processMessage(isMalagasy ? "HANOMBOKA LESONA" : "COMMENCER");
   };
 
   const handleNextClick = async () => {
+      if (!user) return;
       const allowed = await creditService.checkBalance(user.id, CREDIT_COSTS.LESSON);
       if(!allowed) { notify(t('chat.insufficient_credits'), "error"); onShowPayment(); return; }
       setNextLessonInput((currentLessonNum + 1).toString());
@@ -434,13 +454,15 @@ const ChatInterface: React.FC<Props> = ({
 
   // Permanent Tutorial Display
   useEffect(() => {
-      setShowTutorial(true);
+      // setShowTutorial(true);
   }, []);
 
   useEffect(() => {
       const unsubscribeSync = storageService.subscribeToSyncUpdates(setSyncStatus);
       return () => unsubscribeSync();
   }, []);
+
+  if (!user) return null;
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>

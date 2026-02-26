@@ -25,11 +25,11 @@ interface Props {
 }
 
 const SmartDashboard: React.FC<Props> = ({ 
-    user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, 
+    user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, 
     onOpenAdmin, onShowPayment, onStartPractice, onStartExercise, onStartVoice, onStartExam 
 }) => {
-  const { t, language, setLanguage } = useTranslation();
-  if (!user) return null;
+  const { t, setLanguage } = useTranslation();
+  const language = useTranslation().language;
 
   const [activeTab, setActiveTab] = useState<'menu' | 'edit' | 'certs' | 'notifs'>('menu');
   const [isImporting, setIsImporting] = useState(false);
@@ -41,6 +41,7 @@ const SmartDashboard: React.FC<Props> = ({
 
   // Load Data
   useEffect(() => {
+    if (!user) return;
     const loadData = async () => {
         const certs = await storageService.getCertificates(user.id);
         setCertificates(certs);
@@ -53,19 +54,20 @@ const SmartDashboard: React.FC<Props> = ({
         setUnreadCount(notifs.filter(n => !n.read).length);
     };
     loadData();
-  }, [user.id, activeTab]); // Reload when tab changes to refresh
+  }, [user?.id, activeTab]); // Reload when tab changes to refresh
   
   // Edit Profile State
-  const [editName, setEditName] = useState(user.username);
-  const [editFullName, setEditFullName] = useState(user.fullName || user.username);
-  const [editPass, setEditPass] = useState(user.password || '');
+  const [editName, setEditName] = useState(user?.username || '');
+  const [editFullName, setEditFullName] = useState(user?.fullName || user?.username || '');
+  const [editPass, setEditPass] = useState(user?.password || '');
   const [startWithCert, setStartWithCert] = useState(false); // New state for direct cert access
 
   // Low Credit Check
-  const isLowCredits = user.credits < 2;
+  const isLowCredits = user?.credits < 2;
 
   // Combine Certificates and Passed Exams
   const displayCertificates = useMemo(() => {
+    if (!user) return [];
     // 1. Enrich existing certificates with exam details if missing
     const enrichedCertificates = certificates.map((cert: any) => {
         // Find matching exam result
@@ -234,6 +236,8 @@ const SmartDashboard: React.FC<Props> = ({
           window.location.reload(); // Simple way to reset state
       }
   };
+
+  if (!user) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-end">
@@ -807,7 +811,14 @@ const SmartDashboard: React.FC<Props> = ({
 };
 
 // Helper Component for Menu Items
-const SettingsItem = ({ icon, title, value, onClick }: any) => (
+interface SettingsItemProps {
+    icon: React.ReactNode;
+    title: string;
+    value: string;
+    onClick: () => void;
+}
+
+const SettingsItem = ({ icon, title, value, onClick }: SettingsItemProps) => (
     <button onClick={onClick} className="w-full flex items-center justify-between p-4 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-2xl transition-colors group">
         <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
