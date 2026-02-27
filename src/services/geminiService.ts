@@ -89,6 +89,15 @@ export const executeWithRotation = async (
 
                 if (!response.ok) {
                     const errText = await response.text();
+                    
+                    // AUTO-LOGOUT ON 401 (Invalid JWT)
+                    if (response.status === 401 && !isAnon) {
+                        console.warn("[Gemini] 401 Invalid Token detected. Forcing logout...");
+                        await storageService.logout();
+                        window.location.reload(); // Reload to reset app state to Guest/Auth screen
+                        throw new Error("Session expirée. Veuillez vous reconnecter.");
+                    }
+
                     throw new Error(`API Error ${response.status}: ${errText}`);
                 }
 

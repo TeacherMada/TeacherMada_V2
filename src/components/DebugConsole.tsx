@@ -143,6 +143,9 @@ const DebugConsole: React.FC = () => {
           <button onClick={() => setLogs([])} className="p-1.5 hover:bg-white/10 rounded text-white/70" title="Effacer">
             <Trash2 size={14} />
           </button>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="p-1.5 hover:bg-red-900/50 rounded text-red-400 font-bold text-[10px] px-2" title="Force Logout">
+            RESET APP
+          </button>
           <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded text-white/70">
             <X size={16} />
           </button>
