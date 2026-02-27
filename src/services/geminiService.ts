@@ -63,13 +63,25 @@ export const executeWithRotation = async (
                 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
                 const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
                 
+                if (!supabaseUrl || !supabaseKey) {
+                    console.error("[Gemini] Critical: Missing Supabase configuration", { 
+                        hasUrl: !!supabaseUrl, 
+                        hasKey: !!supabaseKey 
+                    });
+                    throw new Error("Configuration Supabase manquante (URL ou Key).");
+                }
+
+                const tokenToUse = session?.access_token || supabaseKey;
+                const isAnon = !session?.access_token;
+                
                 console.log(`[Gemini] Requesting model: ${model} (Attempt ${attempt + 1})`);
+                console.log(`[Gemini] Auth: ${isAnon ? 'Anon Key' : 'User Token'} (${tokenToUse.substring(0, 10)}...)`);
                 
                 const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${session?.access_token || supabaseKey}`,
+                        'Authorization': `Bearer ${tokenToUse}`,
                         'apikey': supabaseKey
                     },
                     body: JSON.stringify({ ...payload, action: 'generate' })
