@@ -15,11 +15,25 @@ if (!isConfigured) {
 
 // Création du client
 // Fix: Bypass LockManager on mobile to prevent "Acquiring lock timed out" errors
-const customLock = {
-    acquire: async (name: string, fn: () => Promise<any>) => {
-        // Immediately execute without locking
-        return await fn();
-    }
+// We implement a dummy LockManager that just executes the callback immediately
+const debugLock = {
+    request: async (name: string, optionsOrFn: any, fn?: any) => {
+        // Handle overload: request(name, callback) vs request(name, options, callback)
+        const callback = (typeof optionsOrFn === 'function') ? optionsOrFn : fn;
+        
+        if (!callback) {
+            console.error("LockManager polyfill: No callback provided");
+            return;
+        }
+
+        try {
+            return await callback();
+        } catch (e) {
+            console.error("LockManager polyfill error:", e);
+            throw e;
+        }
+    },
+    query: async () => ({ held: [], pending: [] })
 };
 
 export const supabase = createClient(
@@ -31,7 +45,7 @@ export const supabase = createClient(
             autoRefreshToken: true,
             detectSessionInUrl: true,
             // @ts-ignore - Bypass lock for mobile stability
-            lock: customLock
+            lock: debugLock
         }
     }
 );
