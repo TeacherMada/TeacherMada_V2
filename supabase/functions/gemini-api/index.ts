@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
       const { socket, response } = Deno.upgradeWebSocket(req);
       
       let geminiWs: any = null;
+      let isConnecting = false;
       let apiKey = '';
 
       socket.onopen = () => {
@@ -87,49 +88,55 @@ Deno.serve(async (req) => {
 
       socket.onmessage = async (e) => {
         const data = e.data;
-        if (!geminiWs) {
-          try {
-            const initData = JSON.parse(data);
-            const { model, config } = initData;
+        
+        try {
+          const parsed = JSON.parse(data);
+          
+          if (parsed.type === 'setup') {
+            if (isConnecting || geminiWs) return;
+            isConnecting = true;
+            
+            const { model, config } = parsed;
             const client = new GoogleGenAI({ apiKey });
             
-            geminiWs = await client.live.connect({
-              model: model || 'gemini-2.5-flash-native-audio-preview-09-2025',
-              config,
-              callbacks: {
-                onopen: () => {
-                  socket.send(JSON.stringify({ type: 'open' }));
-                  keyManager.reportSuccess(apiKey);
-                },
-                onmessage: (msg) => {
-                  if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify(msg));
+            try {
+              geminiWs = await client.live.connect({
+                model: model || 'gemini-2.5-flash-native-audio-preview-09-2025',
+                config,
+                callbacks: {
+                  onopen: () => {
+                    socket.send(JSON.stringify({ type: 'open' }));
+                    keyManager.reportSuccess(apiKey);
+                  },
+                  onmessage: (msg) => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                      socket.send(JSON.stringify(msg));
+                    }
+                  },
+                  onclose: () => {
+                    if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'Gemini closed');
+                  },
+                  onerror: (err) => {
+                    keyManager.reportFailure(apiKey);
+                    if (socket.readyState === WebSocket.OPEN) socket.close(1011, 'Gemini error');
                   }
-                },
-                onclose: () => {
-                  if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'Gemini closed');
-                },
-                onerror: (err) => {
-                  keyManager.reportFailure(apiKey);
-                  if (socket.readyState === WebSocket.OPEN) socket.close(1011, 'Gemini error');
                 }
-              }
-            });
-          } catch (err) {
-            keyManager.reportFailure(apiKey);
-            socket.close(1011, 'Failed to connect to Gemini');
-          }
-        } else {
-          try {
-            const parsed = JSON.parse(data);
+              });
+            } catch (err) {
+              keyManager.reportFailure(apiKey);
+              socket.close(1011, 'Failed to connect to Gemini');
+            } finally {
+              isConnecting = false;
+            }
+          } else if (geminiWs) {
             if (parsed.realtimeInput) {
               geminiWs.sendRealtimeInput(parsed.realtimeInput);
             } else if (parsed.toolResponse) {
               geminiWs.sendToolResponse(parsed.toolResponse);
             }
-          } catch (err) {
-            console.error('Error forwarding to Gemini', err);
           }
+        } catch (err) {
+          console.error('Error handling WS message', err);
         }
       };
 
@@ -161,8 +168,8 @@ Deno.serve(async (req) => {
       const stream = new ReadableStream({
         async start(controller) {
           try {
-            for await (const chunk of result.stream) {
-              const text = chunk.text();
+            for await (const chunk of result) {
+              const text = chunk.text;
               if (text) {
                 controller.enqueue(new TextEncoder().encode(text));
               }

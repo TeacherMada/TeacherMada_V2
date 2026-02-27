@@ -311,6 +311,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               if (isMountedRef.current) {
                   // Send configuration as first message
                   const configMsg = {
+                      type: 'setup',
                       model: LIVE_MODEL,
                       config: {
                           responseModalities: [Modality.AUDIO],
