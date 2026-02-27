@@ -75,9 +75,9 @@ export const executeWithRotation = async (
                 const isAnon = !session?.access_token;
                 
                 console.log(`[Gemini] Requesting model: ${model} (Attempt ${attempt + 1})`);
-                console.log(`[Gemini] Auth: ${isAnon ? 'Anon Key' : 'User Token'} (${tokenToUse.substring(0, 10)}...)`);
+                // console.log(`[Gemini] Auth: ${isAnon ? 'Anon Key' : 'User Token'} (${tokenToUse.substring(0, 10)}...)`);
                 
-                const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+                let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -87,15 +87,27 @@ export const executeWithRotation = async (
                     body: JSON.stringify({ ...payload, action: 'generate' })
                 });
 
+                // RETRY WITH ANON KEY ON 401 (If User Token failed)
+                if (response.status === 401 && !isAnon) {
+                    console.warn("[Gemini] User Token rejected (401). Retrying with Anon Key...");
+                    response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${supabaseKey}`, // Force Anon Key
+                            'apikey': supabaseKey
+                        },
+                        body: JSON.stringify({ ...payload, action: 'generate' })
+                    });
+                }
+
                 if (!response.ok) {
                     const errText = await response.text();
                     
-                    // AUTO-LOGOUT ON 401 (Invalid JWT)
-                    if (response.status === 401 && !isAnon) {
-                        console.warn("[Gemini] 401 Invalid Token detected. Forcing logout...");
-                        await storageService.logout();
-                        window.location.reload(); // Reload to reset app state to Guest/Auth screen
-                        throw new Error("Session expirée. Veuillez vous reconnecter.");
+                    // Only logout if even the Anon Key failed (Critical Auth Failure)
+                    if (response.status === 401) {
+                        console.warn("[Gemini] Critical: Anon Key also rejected (401).");
+                        // Optional: Force logout here if strictly necessary, but better to just throw
                     }
 
                     throw new Error(`API Error ${response.status}: ${errText}`);
