@@ -154,6 +154,7 @@ const DebugConsole: React.FC = () => {
               console.log("Key Length:", supabaseKey?.length);
               
               try {
+                  // Test with a real generation request to check if Anon Key has permission
                   const res = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                       method: 'POST',
                       headers: {
@@ -161,12 +162,16 @@ const DebugConsole: React.FC = () => {
                           'Authorization': `Bearer ${supabaseKey}`,
                           'apikey': supabaseKey
                       },
-                      body: JSON.stringify({ action: 'ping' }) // Simple ping
+                      body: JSON.stringify({ 
+                          action: 'generate',
+                          model: 'gemini-2.5-flash',
+                          contents: { parts: [{ text: 'Hello' }] }
+                      })
                   });
                   console.log("Status:", res.status);
                   const text = await res.text();
                   console.log("Response:", text);
-                  if (res.ok) alert("Connexion OK !");
+                  if (res.ok) alert(`Connexion OK ! Réponse: ${text.substring(0, 50)}...`);
                   else alert(`Erreur: ${res.status} ${text}`);
               } catch (e: any) {
                   console.error("Fetch Error:", e);

@@ -149,9 +149,23 @@ Deno.serve(async (req) => {
       return response;
     }
 
+    if (action === 'ping') {
+      return new Response(JSON.stringify({ message: 'pong', status: 'ok' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const body = await req.json();
     const { model, contents, config } = body;
     action = action || body.action || 'generate';
+    
+    // Validate contents for generate/stream actions
+    if ((action === 'generate' || action === 'stream') && !contents) {
+       return new Response(JSON.stringify({ error: 'Missing contents' }), {
+         status: 400,
+         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+       });
+    }
     
     const apiKey = keyManager.getNextKey();
     const client = new GoogleGenAI({ apiKey });
