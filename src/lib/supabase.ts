@@ -14,9 +14,26 @@ if (!isConfigured) {
 }
 
 // Création du client
+// Fix: Bypass LockManager on mobile to prevent "Acquiring lock timed out" errors
+const customLock = {
+    acquire: async (name: string, fn: () => Promise<any>) => {
+        // Immediately execute without locking
+        return await fn();
+    }
+};
+
 export const supabase = createClient(
     supabaseUrl || 'https://placeholder.supabase.co', 
-    supabaseAnonKey || 'placeholder'
+    supabaseAnonKey || 'placeholder',
+    {
+        auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+            // @ts-ignore - Bypass lock for mobile stability
+            lock: customLock
+        }
+    }
 );
 
 export const isSupabaseConfigured = () => !!isConfigured;
