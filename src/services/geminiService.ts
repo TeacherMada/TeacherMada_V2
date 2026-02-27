@@ -9,25 +9,24 @@ import { supabase } from "../lib/supabase";
 
 // Ordre de priorité des modèles (Textes & Raisonnement)
 export const TEXT_MODELS = [
-    'gemini-3-flash-preview',
-    'gemini-3.1-pro-preview',
+    'gemini-2.5-flash', // Tested & Working
+    'gemini-2.5-flash-latest',
     'gemini-flash-latest',
-    'gemini-flash-lite-latest',
-    'gemini-2.0-flash-exp'
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash' // Fallback legacy
 ];
 
 // Ordre de priorité des modèles (Support / Tâches simples)
 const SUPPORT_MODELS = [
+    'gemini-2.5-flash',
     'gemini-flash-lite-latest',
-    'gemini-flash-latest',
-    'gemini-3-flash-preview'
+    'gemini-flash-latest'
 ];
 
 // Ordre de priorité des modèles (Audio / TTS)
 const AUDIO_MODELS = [
     'gemini-2.5-flash-preview-tts',
-    'gemini-2.5-flash-preview-tts',
-    'gemini-2.5-flash-preview-tts' // Retry same model multiple times
+    'gemini-2.0-flash-exp' // Fallback for Audio
 ];
 
 // Ordre de priorité des modèles (Live Audio)
