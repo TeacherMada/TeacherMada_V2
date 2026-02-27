@@ -243,15 +243,14 @@ const ChatInterface: React.FC<Props> = ({
       
       try {
           setIsStreaming(true);
-          const response = await executeWithRotation(TEXT_MODELS, async (ai) => {
-              return await ai.models.generateContent({
-                  model: 'gemini-flash-lite-latest',
-                  contents: [{ role: 'user', parts: [{ text: prompt }] }]
-              });
-          });
+          const response = await executeWithRotation(TEXT_MODELS, (model) => ({
+              model,
+              contents: [{ role: 'user', parts: [{ text: prompt }] }]
+          }));
           
-          if (response.text) {
-              setInput(response.text.trim());
+          const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+              setInput(text.trim());
           }
       } catch (_e) {
           notify(t('chat.translation_error'), "error");

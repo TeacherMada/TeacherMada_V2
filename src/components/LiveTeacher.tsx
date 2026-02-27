@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Clock, Globe } from 'lucide-react';
 import { UserProfile } from '../types';
-import { GoogleGenAI, Modality } from '@google/genai';
+import { Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
 
@@ -253,16 +253,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           setSubStatus("Recherche serveur...");
           
-          // Use GEMINI_API_KEY as per guidance
-          const apiKeyStr = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
-          const keys = apiKeyStr.split(',').map(k => k.trim()).filter(k => k.length > 10);
-          
-          if (keys.length === 0) {
-              console.error("No API Key found in env vars");
-              throw new Error("Aucune clé API configurée");
-          }
-
-          await connectWithRetry(keys, ctx);
+          // Connect to local WebSocket proxy
+          await connectToProxy(ctx);
 
       } catch (e: any) {
           if (e.message !== "Accès microphone refusé ou impossible." && !e.message.includes("Microphone")) {
@@ -275,119 +267,126 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
   };
 
-  const connectWithRetry = async (keys: string[], ctx: AudioContext) => {
+  const connectToProxy = async (ctx: AudioContext) => {
       if (!user) return;
-      let lastError = null;
+      
+      try {
+          // Determine WebSocket URL
+          const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+          if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL not configured");
+          
+          const wsUrl = supabaseUrl.replace(/^http/, 'ws') + '/functions/v1/gemini-api?action=live';
 
-      for (const apiKey of keys) {
-          let isCurrentAttempt = true;
-          try {
-              console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
-              const client = new GoogleGenAI({ apiKey });
-              
-              // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
-              const sysPrompt = `
-              IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
-              CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
-              
-              AUDIO INSTRUCTIONS:
-              - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
-              - Use a warm, patient, and encouraging tone.
-              
-              LANGUAGE RULES:
-              1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
-              2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
-              
-              CORRECTION PROTOCOL (CRITICAL):
-              When the user makes a mistake (grammar, pronunciation, structure):
-              1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
-              2. **✅ CORRECT**: Clearly state the correct version of the phrase.
-              3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
-              
-              GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
-              
-              START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
-              `;
+          console.log("Connecting to Supabase Edge Function:", wsUrl);
+          
+          const ws = new WebSocket(wsUrl);
+          activeSessionRef.current = ws; // Store WS as session
 
-              const session = await client.live.connect({
-                  model: LIVE_MODEL,
-                  config: {
-                      responseModalities: [Modality.AUDIO],
-                      systemInstruction: { parts: [{ text: sysPrompt }] },
-                      speechConfig: {
-                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+          // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
+          const sysPrompt = `
+          IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
+          CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
+          
+          AUDIO INSTRUCTIONS:
+          - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
+          - Use a warm, patient, and encouraging tone.
+          
+          LANGUAGE RULES:
+          1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
+          2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
+          
+          CORRECTION PROTOCOL (CRITICAL):
+          When the user makes a mistake (grammar, pronunciation, structure):
+          1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
+          2. **✅ CORRECT**: Clearly state the correct version of the phrase.
+          3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
+          
+          GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
+          
+          START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
+          `;
+
+          // Setup handlers
+          ws.onopen = () => {
+              if (isMountedRef.current) {
+                  // Send configuration as first message
+                  const configMsg = {
+                      model: LIVE_MODEL,
+                      config: {
+                          responseModalities: [Modality.AUDIO],
+                          systemInstruction: { parts: [{ text: sysPrompt }] },
+                          speechConfig: {
+                              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+                          }
                       }
-                  },
-                  callbacks: {
-                      onopen: () => {
-                          if (isMountedRef.current && isCurrentAttempt) {
-                              isConnectedRef.current = true;
-                              setStatus('connected');
-                              setSubStatus("En Ligne");
-                          }
-                      },
-                      onmessage: async (msg: any) => {
-                          if (!isCurrentAttempt || !isMountedRef.current) return;
-                          const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                          if (audioData) {
-                              setTeacherSpeaking(true);
-                              setSubStatus("TeacherMada parle...");
-                              await playAudioChunk(audioData, ctx);
-                          }
-                          
-                          if (msg.serverContent?.turnComplete) {
-                              setTeacherSpeaking(false);
-                              setSubStatus("Je vous écoute...");
-                              if (nextStartTimeRef.current < ctx.currentTime) {
-                                  nextStartTimeRef.current = ctx.currentTime;
-                              }
-                          }
-                      },
-                      onclose: (e: any) => {
-                          if (!isCurrentAttempt) return;
-                          console.log("Session closed remote", e);
-                          cleanupAudio();
-                          if (isMountedRef.current) {
-                              setStatus('error');
-                              const msg = getDisconnectMessage(e?.code, e?.reason, ctx.state);
-                              setSubStatus(msg);
-                          }
-                      },
-                      onerror: (err: any) => {
-                          if (!isCurrentAttempt) return;
-                          console.error("Session error", err);
-                          cleanupAudio();
-                          if (isMountedRef.current) {
-                              setStatus('error');
-                              const msg = `Erreur WebSocket: ${err.message || "Inconnue"} | Audio: ${ctx.state}`;
-                              setSubStatus(msg);
-                          }
+                  };
+                  ws.send(JSON.stringify(configMsg));
+
+                  isConnectedRef.current = true;
+                  setStatus('connected');
+                  setSubStatus("En Ligne");
+              }
+          };
+
+          ws.onmessage = async (event) => {
+              if (!isMountedRef.current) return;
+              try {
+                  const msg = JSON.parse(event.data);
+                  
+                  // Handle "open" confirmation from proxy
+                  if (msg.type === 'open') return;
+
+                  const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                  if (audioData) {
+                      setTeacherSpeaking(true);
+                      setSubStatus("TeacherMada parle...");
+                      await playAudioChunk(audioData, ctx);
+                  }
+                  
+                  if (msg.serverContent?.turnComplete) {
+                      setTeacherSpeaking(false);
+                      setSubStatus("Je vous écoute...");
+                      if (nextStartTimeRef.current < ctx.currentTime) {
+                          nextStartTimeRef.current = ctx.currentTime;
                       }
                   }
-              });
-
-              if (!isMountedRef.current || (ctx.state as string) === 'closed') {
-                  session.close();
-                  return;
+              } catch (e) {
+                  console.error("Error parsing WS message", e);
               }
+          };
 
-              activeSessionRef.current = session;
-              await startMicrophone(ctx, session);
-              return;
-
-          } catch (e: any) {
-              isCurrentAttempt = false;
-              // CRITICAL: Do not retry if it's a microphone permission issue
-              if (e.message.includes("Microphone") || e.message.includes("microphone") || e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
-                  throw e;
+          ws.onclose = (e) => {
+              console.log("Session closed remote", e);
+              cleanupAudio();
+              if (isMountedRef.current) {
+                  setStatus('error');
+                  const msg = getDisconnectMessage(e.code, e.reason, ctx.state);
+                  setSubStatus(msg);
               }
+          };
 
-              console.warn("Echec connexion clé", apiKey.slice(-4), e);
-              lastError = e;
+          ws.onerror = (err) => {
+              console.error("Session error", err);
+              cleanupAudio();
+              if (isMountedRef.current) {
+                  setStatus('error');
+                  const msg = `Erreur WebSocket: Inconnue | Audio: ${ctx.state}`;
+                  setSubStatus(msg);
+              }
+          };
+
+          await startMicrophone(ctx, ws);
+
+      } catch (e: any) {
+          // CRITICAL: Do not retry if it's a microphone permission issue
+          if (e.message.includes("Microphone") || e.message.includes("microphone") || e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
+              throw e;
           }
+          console.warn("Connection failed", e);
+          throw e;
       }
-      throw lastError || new Error("Serveurs saturés (Toutes clés HS)");
   };
+
 
   const startMicrophone = async (ctx: AudioContext, session: any) => {
       try {
@@ -482,12 +481,17 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
-                  session.sendRealtimeInput({
-                      media: {
-                          mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-                          data: base64Audio
-                      }
-                  });
+                  // Send audio data to WebSocket
+                  if (session.readyState === WebSocket.OPEN) {
+                      session.send(JSON.stringify({
+                          realtimeInput: {
+                              mediaChunks: [{
+                                  mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+                                  data: base64Audio
+                              }]
+                          }
+                      }));
+                  }
               } catch (err) {}
           };
 

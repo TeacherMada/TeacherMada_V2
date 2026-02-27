@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { UserProfile } from "../../types";
 import { SmartExam, ExamResultDetailed, CertificateMetadata, ExamType } from "./types";
 import { storageService } from "../../services/storageService";
@@ -59,37 +59,35 @@ export const SmartExamService = {
             }
             `;
 
-            const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
-                return await ai.models.generateContent({
-                    model,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: {
-                                sections: {
-                                    type: Type.ARRAY,
-                                    items: {
-                                        type: Type.OBJECT,
-                                        properties: {
-                                            id: { type: Type.STRING },
-                                            type: { type: Type.STRING, enum: ["qcm", "writing", "speaking", "listening"] },
-                                            question: { type: Type.STRING },
-                                            context: { type: Type.STRING },
-                                            options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                            weight: { type: Type.NUMBER }
-                                        },
-                                        required: ["id", "type", "question", "weight"]
-                                    }
+            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            sections: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        id: { type: Type.STRING },
+                                        type: { type: Type.STRING, enum: ["qcm", "writing", "speaking", "listening"] },
+                                        question: { type: Type.STRING },
+                                        context: { type: Type.STRING },
+                                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                        weight: { type: Type.NUMBER }
+                                    },
+                                    required: ["id", "type", "question", "weight"]
                                 }
                             }
                         }
                     }
-                });
-            });
+                }
+            }));
 
-            const data = JSON.parse(response.text || "{}");
+            const data = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
             
             if (!data.sections || !Array.isArray(data.sections) || data.sections.length === 0) {
                 throw new Error("Format d'examen invalide (Sections manquantes)");
@@ -144,35 +142,33 @@ export const SmartExamService = {
         `;
 
         try {
-            const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
-                return await ai.models.generateContent({
-                    model,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: {
-                                globalScore: { type: Type.NUMBER },
-                                skillScores: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        reading: { type: Type.NUMBER },
-                                        writing: { type: Type.NUMBER },
-                                        listening: { type: Type.NUMBER },
-                                        speaking: { type: Type.NUMBER }
-                                    }
-                                },
-                                detectedLevel: { type: Type.STRING },
-                                feedback: { type: Type.STRING },
-                                confidenceScore: { type: Type.NUMBER }
-                            }
+            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            globalScore: { type: Type.NUMBER },
+                            skillScores: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    reading: { type: Type.NUMBER },
+                                    writing: { type: Type.NUMBER },
+                                    listening: { type: Type.NUMBER },
+                                    speaking: { type: Type.NUMBER }
+                                }
+                            },
+                            detectedLevel: { type: Type.STRING },
+                            feedback: { type: Type.STRING },
+                            confidenceScore: { type: Type.NUMBER }
                         }
                     }
-                });
-            });
+                }
+            }));
 
-            const evalData = JSON.parse(response.text || "{}");
+            const evalData = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
             const passed = (evalData.globalScore || 0) >= 70; // Seuil strict
 
             let certId = undefined;

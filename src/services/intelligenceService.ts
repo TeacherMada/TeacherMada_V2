@@ -40,30 +40,28 @@ export const intelligenceService = {
         `;
 
         try {
-            const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
-                return await ai.models.generateContent({
-                    model,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: {
-                                pronunciation: { type: Type.NUMBER },
-                                grammar: { type: Type.NUMBER },
-                                vocabulary: { type: Type.NUMBER },
-                                fluency: { type: Type.NUMBER },
-                                structure: { type: Type.NUMBER },
-                                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } }
-                            },
-                            required: ["pronunciation", "grammar", "vocabulary", "fluency", "structure", "strengths", "weaknesses"]
-                        }
+            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            pronunciation: { type: Type.NUMBER },
+                            grammar: { type: Type.NUMBER },
+                            vocabulary: { type: Type.NUMBER },
+                            fluency: { type: Type.NUMBER },
+                            structure: { type: Type.NUMBER },
+                            strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } }
+                        },
+                        required: ["pronunciation", "grammar", "vocabulary", "fluency", "structure", "strengths", "weaknesses"]
                     }
-                });
-            });
+                }
+            }));
 
-            const data = JSON.parse(response.text || "{}");
+            const data = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
             const overall = Math.round((data.pronunciation + data.grammar + data.vocabulary + data.fluency + data.structure) / 5);
 
             const newProfile: LearningProfile = {
@@ -135,28 +133,26 @@ export const intelligenceService = {
         `;
 
         try {
-            const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
-                return await ai.models.generateContent({
-                    model,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: Type.OBJECT,
-                            properties: {
-                                newMasteredVocabulary: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                newFrequentErrors: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                newCompletedConcepts: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                currentDifficulties: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                lastLessonTopic: { type: Type.STRING },
-                                sessionSuccessRate: { type: Type.NUMBER }
-                            }
+            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            newMasteredVocabulary: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            newFrequentErrors: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            newCompletedConcepts: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            currentDifficulties: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            lastLessonTopic: { type: Type.STRING },
+                            sessionSuccessRate: { type: Type.NUMBER }
                         }
                     }
-                });
-            });
+                }
+            }));
 
-            const data = JSON.parse(response.text || "{}");
+            const data = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
 
             // Merge logic
             const newMemory: LearningMemory = {
