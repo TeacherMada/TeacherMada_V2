@@ -20,6 +20,8 @@ import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
 import { LanguageProvider } from './contexts/LanguageContext';
 
+import DebugConsole from './components/DebugConsole';
+
 // Lazy Load Heavy Modules
 const ExamHub = React.lazy(() => import('./modules/SmartExam'));
 
@@ -90,6 +92,7 @@ const AppContent: React.FC = () => {
     }
 
     const init = async () => {
+        console.log("App initializing...");
         const curr = await storageService.getCurrentUser();
         if (curr) {
             setUser(curr);
@@ -358,6 +361,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
       <Toaster />
+      <DebugConsole />
 
       {!showAdmin && (
           <TutorialAgent user={user || GUEST_USER} context={getAgentContext()} />

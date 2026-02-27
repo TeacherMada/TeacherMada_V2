@@ -63,6 +63,8 @@ export const executeWithRotation = async (
                 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
                 const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
                 
+                console.log(`[Gemini] Requesting model: ${model} (Attempt ${attempt + 1})`);
+                
                 const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                     method: 'POST',
                     headers: { 
