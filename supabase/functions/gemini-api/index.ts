@@ -195,13 +195,17 @@ Deno.serve(async (req) => {
         config
       });
       keyManager.reportSuccess(apiKey);
-      return new Response(JSON.stringify(response), {
+      return new Response(JSON.stringify({
+        text: response.text,
+        candidates: response.candidates,
+        functionCalls: response.functionCalls
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
   } catch (error: any) {
     console.error('API Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

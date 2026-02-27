@@ -59,13 +59,26 @@ export const executeWithRotation = async (
             try {
                 const payload = requestPayloadFn(model);
                 
-                const { data, error } = await supabase.functions.invoke('gemini-api', {
-                    body: { ...payload, action: 'generate' }
+                const { data: { session } } = await supabase.auth.getSession();
+                const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+                const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+                
+                const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token || supabaseKey}`,
+                        'apikey': supabaseKey
+                    },
+                    body: JSON.stringify({ ...payload, action: 'generate' })
                 });
 
-                if (error) {
-                    throw new Error(error.message || `Server error`);
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`API Error ${response.status}: ${errText}`);
                 }
+
+                const data = await response.json();
 
                 return data; // Succès immédiat
 
@@ -132,7 +145,9 @@ async function* streamWithRotation(
             });
 
             if (!response.ok || !response.body) {
-                 throw new Error(`Stream error: ${response.status}`);
+                 const errText = await response.text();
+                 console.error(`Stream error response:`, errText);
+                 throw new Error(`Stream error: ${response.status} - ${errText}`);
             }
 
             const reader = response.body.getReader();
