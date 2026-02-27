@@ -268,26 +268,84 @@ export async function* sendMessageStream(
   
   contents.push({ role: 'user', parts: [{ text: message }] });
 
-  const streamGenerator = streamWithRotation(TEXT_MODELS, (model) => ({
-      model,
-      contents,
-      config: {
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!, user.aiMemory) }] },
-        temperature: 0.7,
-        maxOutputTokens: 8192,
-      }
-  }));
+  // Use executeWithRotation logic for streaming too (manual implementation to support fallback)
+  const modelList = TEXT_MODELS;
+  let success = false;
 
-  let hasYielded = false;
-  for await (const chunk of streamGenerator) {
-      if (chunk) {
-          yield chunk;
-          if (!chunk.startsWith('⚠️')) hasYielded = true;
+  for (const model of modelList) {
+      if (success) break;
+      
+      try {
+          const payload = {
+              model,
+              contents,
+              config: {
+                systemInstruction: { parts: [{ text: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!, user.aiMemory) }] },
+                temperature: 0.7,
+                maxOutputTokens: 8192,
+              }
+          };
+
+          const { data: { session } } = await supabase.auth.getSession();
+          const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+          const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+          
+          let tokenToUse = session?.access_token || supabaseKey;
+          let isAnon = !session?.access_token;
+
+          let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${tokenToUse}`,
+                  'apikey': supabaseKey
+              },
+              body: JSON.stringify({ ...payload, action: 'stream' })
+          });
+
+          // RETRY WITH ANON KEY ON 401
+          if (response.status === 401 && !isAnon) {
+              console.warn(`[Stream] User Token rejected for ${model}. Retrying with Anon Key...`);
+              response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+                  method: 'POST',
+                  headers: { 
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${supabaseKey}`,
+                      'apikey': supabaseKey
+                  },
+                  body: JSON.stringify({ ...payload, action: 'stream' })
+              });
+          }
+
+          if (!response.ok || !response.body) {
+               const errText = await response.text();
+               console.warn(`Stream fail [${model}]: ${response.status} - ${errText}`);
+               continue; // Try next model
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              if (chunk) yield chunk;
+          }
+          
+          success = true;
+          await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
+          return; // Exit function on success
+
+      } catch (e) {
+          console.warn(`Stream exception [${model}]:`, e);
+          continue;
       }
   }
 
-  if (hasYielded) {
-      await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
+  if (!success) {
+      yield "⚠️ Désolé, tous les modèles sont saturés. Veuillez réessayer dans un instant.";
+      console.error("🔥 CRITICAL: All streaming models exhausted.");
   }
 }
 

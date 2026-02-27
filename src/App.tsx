@@ -15,6 +15,7 @@ import VerifyCertificate from './components/VerifyCertificate'; // Added
 import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
 import type { UserPreferences } from './types';
 import { storageService } from './services/storageService';
+import { supabase } from './lib/supabase';
 import { generateExerciseFromHistory } from './services/geminiService'; // Added
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
@@ -105,8 +106,31 @@ const AppContent: React.FC = () => {
     };
     init();
     
+    // Auth State Listener (Global Session Management)
+    const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log(`[Auth] State Change: ${event}`);
+        
+        if (event === 'SIGNED_OUT') {
+            setUser(null);
+            setCurrentSession(null);
+            setShowDashboard(false);
+            setShowAdmin(false);
+            setActiveMode('chat');
+            storageService.logout(); // Ensure local cleanup
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            if (session?.user) {
+                // Refresh user data on sign-in or token refresh
+                const updated = await storageService.getUserById(session.user.id);
+                if (updated) {
+                    setUser(updated);
+                    storageService.saveLocalUser(updated);
+                }
+            }
+        }
+    });
+    
     // Global Event Listener for User Updates (Credits, Stats, etc.)
-    const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
+    const unsubscribeLocal = storageService.subscribeToUserUpdates((updatedUser) => {
         setUser((currentUser) => {
             // FIX: Sticky Preferences Protection
             if (currentUser && currentUser.id === updatedUser.id) {
@@ -118,10 +142,18 @@ const AppContent: React.FC = () => {
         });
     });
 
+    // Real-time Remote Subscription (Credits, XP, etc.)
+    let unsubscribeRemote = () => {};
+    if (user?.id) {
+        unsubscribeRemote = (storageService as any).subscribeToRemoteChanges(user.id);
+    }
+
     return () => {
-        unsubscribe();
+        unsubscribeLocal();
+        authListener.unsubscribe();
+        unsubscribeRemote();
     };
-  }, []); // Empty dependency array for init
+  }, [user?.id]); // Dependency on user.id to re-subscribe when user changes
 
   // Theme logic
   useEffect(() => {

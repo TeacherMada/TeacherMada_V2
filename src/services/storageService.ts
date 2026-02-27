@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode, ExamResult, Certificate, SmartNotification } from "../types";
+import { toast } from "../components/Toaster";
 
 const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const SESSION_PREFIX = 'tm_v3_session_';
@@ -106,6 +107,62 @@ export const storageService = {
       userListeners.push(callback);
       return () => {
           userListeners = userListeners.filter(cb => cb !== callback);
+      };
+  },
+
+  // --- REAL-TIME SYNC ---
+  subscribeToRemoteChanges: (userId: string) => {
+      if (!isSupabaseConfigured()) return () => {};
+
+      console.log(`[Realtime] Subscribing to changes for user ${userId}`);
+      const channel = supabase
+          .channel(`public:profiles:id=eq.${userId}`)
+          .on(
+              'postgres_changes',
+              {
+                  event: 'UPDATE',
+                  schema: 'public',
+                  table: 'profiles',
+                  filter: `id=eq.${userId}`
+              },
+              (payload) => {
+                  console.log('[Realtime] Profile updated:', payload);
+                  if (payload.new) {
+                      const mappedUser = mapProfile(payload.new);
+                      // Update local storage and notify listeners
+                      // We use saveLocalUser to trigger the event bus, but we must be careful not to overwrite 
+                      // local transient state if necessary. However, DB is source of truth.
+                      const currentUser = storageService.getLocalUser();
+                      
+                      // Merge strategy: Trust DB for Credits, XP, Stats. 
+                      // For Preferences/Memory, we might want to be careful if user is currently editing.
+                      // For now, we trust DB as the "server authority".
+                      
+                      // Preserve local session-like state if needed? 
+                      // Actually, for credits/xp (the most important real-time aspect), we just want to update those.
+                      
+                      if (currentUser) {
+                          const merged = {
+                              ...currentUser,
+                              ...mappedUser,
+                              // Keep local preferences if remote are empty (edge case protection)
+                              preferences: (mappedUser.preferences && Object.keys(mappedUser.preferences).length > 0) 
+                                  ? mappedUser.preferences 
+                                  : currentUser.preferences
+                          };
+                          storageService.saveLocalUser(merged);
+                          toast.info("Données mises à jour depuis le serveur.");
+                      } else {
+                          storageService.saveLocalUser(mappedUser);
+                      }
+                  }
+              }
+          )
+          .subscribe();
+
+      return () => {
+          console.log(`[Realtime] Unsubscribing for user ${userId}`);
+          supabase.removeChannel(channel);
       };
   },
 
