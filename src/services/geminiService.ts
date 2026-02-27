@@ -59,8 +59,8 @@ export const executeWithRotation = async (
             try {
                 const payload = requestPayloadFn(model);
                 
-                const { data, error } = await supabase.functions.invoke('gemini-api?action=generate', {
-                    body: payload
+                const { data, error } = await supabase.functions.invoke('gemini-api', {
+                    body: { ...payload, action: 'generate' }
                 });
 
                 if (error) {
@@ -121,14 +121,14 @@ async function* streamWithRotation(
             const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
             const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
             
-            const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api?action=stream`, {
+            const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token || supabaseKey}`,
                     'apikey': supabaseKey
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ ...payload, action: 'stream' })
             });
 
             if (!response.ok || !response.body) {

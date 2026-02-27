@@ -148,15 +148,55 @@ export const storageService = {
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
     try {
-        const email = formatLoginEmail(id);
+        let email = id.trim();
+
+        // Si ce n'est pas un email, on cherche l'email associé au username
+        if (!email.includes('@')) {
+            try {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('email')
+                    .eq('username', email)
+                    .single();
+                
+                if (data && data.email) {
+                    email = data.email;
+                } else {
+                    // Fallback to formatLoginEmail if not found in profiles (for legacy users)
+                    email = formatLoginEmail(id);
+                }
+            } catch (e) {
+                email = formatLoginEmail(id);
+            }
+        }
         
-        // 1. Auth Supabase
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: email, 
-            password: pass
-        });
+        // 1. Auth Supabase with Retry for LockManager
+        let authData = null;
+        let authError = null;
+        let attempts = 0;
+
+        while (attempts < 3) {
+            try {
+                const result = await supabase.auth.signInWithPassword({
+                    email: email, 
+                    password: pass
+                });
+                authData = result.data;
+                authError = result.error;
+                break;
+            } catch (e: any) {
+                if (e.message && e.message.includes('LockManager')) {
+                    console.warn(`LockManager timeout, retrying login (attempt ${attempts + 1})...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempts + 1)));
+                    attempts++;
+                } else {
+                    throw e;
+                }
+            }
+        }
 
         if (authError) return { success: false, error: "Identifiants incorrects." };
+        if (!authData || !authData.user) return { success: false, error: "Erreur de connexion." };
 
         if (authData.user) {
             // 2. Fetch Profile (Strict : Pas de fallback local ici)
@@ -265,8 +305,27 @@ export const storageService = {
       if (!isSupabaseConfigured()) return localUser;
 
       try {
-          // 1. Check Auth Session
-          const { data: { session }, error } = await supabase.auth.getSession();
+          // 1. Check Auth Session with Retry for LockManager timeouts
+          let session = null;
+          let error = null;
+          let attempts = 0;
+          
+          while (attempts < 3) {
+              try {
+                  const result = await supabase.auth.getSession();
+                  session = result.data.session;
+                  error = result.error;
+                  break; // Success, exit retry loop
+              } catch (e: any) {
+                  if (e.message && e.message.includes('LockManager')) {
+                      console.warn(`LockManager timeout, retrying getSession (attempt ${attempts + 1})...`);
+                      await new Promise(resolve => setTimeout(resolve, 1000 * (attempts + 1)));
+                      attempts++;
+                  } else {
+                      throw e; // Other errors, throw immediately
+                  }
+              }
+          }
           
           if (error) {
               // Handle Invalid Refresh Token specifically

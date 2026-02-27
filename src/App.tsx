@@ -78,7 +78,7 @@ const AppContent: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
-  // Load User & Theme & Subscribe to Updates
+  // Load User & Subscribe to Updates
   useEffect(() => {
     // Check URL for verification
     const path = window.location.pathname;
@@ -114,13 +114,16 @@ const AppContent: React.FC = () => {
             return updatedUser;
         });
     });
-    
-    document.documentElement.classList.toggle('dark', isDarkMode);
-    localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
 
     return () => {
         unsubscribe();
     };
+  }, []); // Empty dependency array for init
+
+  // Theme logic
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDarkMode);
+    localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
   // Offline Detection
