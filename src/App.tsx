@@ -12,7 +12,7 @@ import AdminDashboard from './components/AdminDashboard';
 import TutorialAgent from './components/TutorialAgent';
 import LiveTeacher from './components/LiveTeacher'; 
 import VerifyCertificate from './components/VerifyCertificate'; // Added
-import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
+import { UserProfile, LearningSession, ExerciseItem, LearningMode } from './types';
 import type { UserPreferences } from './types';
 import { storageService } from './services/storageService';
 import { supabase } from './lib/supabase';
@@ -32,27 +32,14 @@ const GUEST_USER: UserProfile = {
   username: 'Visiteur',
   role: 'user',
   createdAt: Date.now(),
+  updatedAt: Date.now(),
+  credits: 0,
   preferences: {
     targetLanguage: 'Français',
     level: 'Débutant',
     explanationLanguage: 'Français',
     mode: LearningMode.Course,
     voiceName: 'Zephyr'
-  },
-  stats: { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 },
-  vocabulary: [],
-  credits: 0,
-  xp: 0, // Fix: Added missing XP
-  freeUsage: { lastResetWeek: new Date().toISOString(), count: 0 },
-  aiMemory: {
-    masteredVocabulary: [],
-    frequentErrors: [],
-    completedConcepts: [],
-    currentDifficulties: [],
-    lastLesson: "Introduction",
-    weeklyGoal: "Découverte",
-    successRate: 100,
-    lastUpdate: Date.now()
   }
 };
 
@@ -186,8 +173,7 @@ const AppContent: React.FC = () => {
                   }
                   if (
                       updated.credits !== user.credits || 
-                      updated.isSuspended !== user.isSuspended ||
-                      JSON.stringify(updated.stats) !== JSON.stringify(user.stats)
+                      updated.isSuspended !== user.isSuspended
                   ) {
                       setUser(updated);
                       if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
@@ -216,20 +202,12 @@ const AppContent: React.FC = () => {
 
   const handleChangeCourse = async () => {
       if (!user) return;
-      const currentLang = user.preferences?.targetLanguage;
-      const currentHistory = user.preferences?.history || {};
-      if (currentLang) {
-          currentHistory[currentLang] = user.stats;
-      }
-      const emptyStats: UserStats = { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 };
       const updatedUser: UserProfile = {
           ...user,
-          stats: emptyStats,
           preferences: {
               ...user.preferences!,
               targetLanguage: '', 
               level: '',
-              history: currentHistory
           }
       };
       setUser(updatedUser);
@@ -240,24 +218,16 @@ const AppContent: React.FC = () => {
   const handleOnboardingComplete = async (prefs: any) => {
     if (!user || !prefs) return;
     const selectedLang = prefs.targetLanguage || "English"; // Default fallback
-    const history = user.preferences?.history || {};
-    const restoredStats = history[selectedLang] || { 
-        lessonsCompleted: 0, 
-        exercisesCompleted: 0, 
-        dialoguesCompleted: 0 
-    };
     
     // Ensure preferences match UserPreferences type strictly
     const newPreferences: UserPreferences = {
         ...prefs,
         targetLanguage: selectedLang,
-        history: history,
         // Ensure other required fields if any, or spread prefs
     };
 
     const updated: UserProfile = { 
         ...user, 
-        stats: restoredStats,
         preferences: newPreferences
     };
     setUser(updated);
@@ -300,25 +270,6 @@ const AppContent: React.FC = () => {
 
   const finishExercise = async (score: number, total: number) => {
       if (user) {
-          const newStats = {
-              ...user.stats,
-              exercisesCompleted: (user.stats.exercisesCompleted || 0) + 1
-          };
-          const currentLang = user.preferences?.targetLanguage;
-          const currentHistory = user.preferences?.history || {};
-          if (currentLang) {
-              currentHistory[currentLang] = newStats;
-          }
-          const updatedUser = { 
-              ...user, 
-              stats: newStats,
-              preferences: {
-                  ...user.preferences!,
-                  history: currentHistory
-              }
-          };
-          await storageService.saveUserProfile(updatedUser);
-          setUser(updatedUser);
           toast.success(`Exercice terminé ! Score : ${score}/${total}`);
       }
       setActiveMode('chat');

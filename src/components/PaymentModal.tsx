@@ -87,7 +87,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
         'credit',
         credits,
         `Mobile Money (${selectedOperator.toUpperCase()}). Réf: ${reference}`,
-        user.phoneNumber || '' 
+        '' 
       );
       setIsSuccess(true);
       setTimeout(() => {

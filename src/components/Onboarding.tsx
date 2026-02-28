@@ -22,20 +22,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   const [step, setStep] = useState(1);
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({});
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
-  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
-  const [customLangs, setCustomLangs] = useState<any[]>([]);
-
-  useEffect(() => {
-      const loadSettings = async () => {
-          try {
-              const settings = storageService.getSystemSettings();
-              setCustomLangs(settings.customLanguages || []);
-          } finally {
-              setIsLoadingSettings(false);
-          }
-      };
-      loadSettings();
-  }, []);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
 
   const allLanguages = useMemo(() => {
       const staticLangs = Object.entries(TargetLanguage);
@@ -47,15 +34,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
               flagUrl: getFlagUrl(baseName)
           };
       });
-      
-      const formattedCustom = customLangs.map(l => ({
-          code: l.code,
-          baseName: l.baseName,
-          flagUrl: getFlagUrl(l.baseName)
-      }));
 
-      return [...formattedStatic, ...formattedCustom];
-  }, [customLangs, t]);
+      return formattedStatic;
+  }, [t]);
 
   const availableLevels = useMemo(() => {
     if (prefs.targetLanguage && (prefs.targetLanguage as string).includes("Chinois")) {

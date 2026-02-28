@@ -241,13 +241,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               feedback: result.feedback || "Bravo pour ta participation !"
           });
           
-          const newStats = { 
-              ...user.stats, 
-              dialoguesCompleted: (user.stats.dialoguesCompleted || 0) + 1 
-          };
-          
           const freshUser = await storageService.getUserById(user.id);
-          const userWithStats = { ...(freshUser || user), stats: newStats };
+          const userWithStats = { ...(freshUser || user) };
           
           await storageService.saveUserProfile(userWithStats);
           onUpdateUser(userWithStats);

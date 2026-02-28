@@ -2,10 +2,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
-import { sendMessageStream, generateSpeech, executeWithRotation, TEXT_MODELS } from '../services/geminiService';
+import { sendMessageStream, generateSpeech, executeEdgeFunction } from '../services/geminiService';
 import { storageService, SyncStatus } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
-import { intelligenceService } from '../services/intelligenceService';
 import { getFlagUrl } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useTranslation } from '../contexts/LanguageContext';
@@ -143,15 +142,7 @@ const ChatInterface: React.FC<Props> = ({
   // Periodic Intelligence Analysis
   useEffect(() => {
       if (!user || messages.length === 0) return;
-      if (messages.length % 6 === 0) {
-          // Run in background without blocking UI
-          intelligenceService.consolidateMemory(user, messages).then(mem => {
-             if(mem) onUpdateUser({...user, aiMemory: mem});
-          });
-          intelligenceService.analyzePerformance(user, messages).then(prof => {
-             if(prof) onUpdateUser({...user, learningProfile: prof});
-          });
-      }
+      // Removed intelligenceService analysis
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
@@ -266,10 +257,10 @@ const ChatInterface: React.FC<Props> = ({
       
       try {
           setIsStreaming(true);
-          const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-              model,
+          const response = await executeEdgeFunction('generate', {
+              modelType: 'text',
               contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          }));
+          });
           
           const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text) {
@@ -289,7 +280,7 @@ const ChatInterface: React.FC<Props> = ({
           const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) return parseInt(match[1], 10);
       }
-      return (user.stats.lessonsCompleted || 0) + 1;
+      return 1;
   }, [messages, user]);
 
   const currentLessonTitle = `${t('dashboard.lessons')} ${currentLessonNum}`;
@@ -373,7 +364,7 @@ const ChatInterface: React.FC<Props> = ({
       
       const lessonsPerLevel = 50;
       // Sync with current lesson number from chat if higher than stats
-      const effectiveCompleted = Math.max(user.stats.lessonsCompleted || 0, currentLessonNum);
+      const effectiveCompleted = currentLessonNum;
       const percentage = Math.min((effectiveCompleted / lessonsPerLevel) * 100, 100);
       
       return { percentage: Math.round(percentage), nextLevel, currentLevel, completed: effectiveCompleted, total: lessonsPerLevel };
@@ -419,20 +410,15 @@ const ChatInterface: React.FC<Props> = ({
       }
       
       const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
-      await storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
+      await storageService.saveSession({ ...session, messages: newMessages });
 
       if (isAuto) {
-          const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
-          const updated = { ...user, stats: newStats };
+          // Stats update removed
+          const updated = { ...user };
           await storageService.saveUserProfile(updated);
       }
 
-      // Trigger background analysis
-      intelligenceService.analyzePerformance(user, newMessages).then(profile => {
-          if (profile && profile.lastAnalysisTimestamp !== user.learningProfile?.lastAnalysisTimestamp) {
-              onUpdateUser({ ...user, learningProfile: profile });
-          }
-      });
+      // Trigger background analysis removed
 
     } catch (_e) {
       notify(t('chat.connection_error'), "error");

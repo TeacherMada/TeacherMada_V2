@@ -1,53 +1,19 @@
 import { Type, Modality } from "@google/genai";
-import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
+import { UserProfile, ChatMessage, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseUrl, supabaseAnonKey } from "../lib/supabase";
 
-// --- CONFIGURATION DE LA ROTATION ---
-
-// Ordre de priorité des modèles (Textes & Raisonnement)
-export const TEXT_MODELS = [
-    'gemini-2.5-flash', // Tested & Working
-    'gemini-2.5-flash-latest',
-    'gemini-flash-latest',
-    'gemini-2.0-flash-exp',
-    'gemini-1.5-flash' // Fallback legacy
-];
-
-// Ordre de priorité des modèles (Support / Tâches simples)
-const SUPPORT_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest'
-];
-
-// Ordre de priorité des modèles (Audio / TTS)
-const AUDIO_MODELS = [
-    'gemini-2.5-flash-preview-tts',
-    'gemini-2.0-flash-exp' // Fallback for Audio
-];
-
-// Ordre de priorité des modèles (Live Audio)
-export const LIVE_MODELS = [
-    'gemini-2.5-flash-native-audio-preview-09-2025',
-    'gemini-2.0-flash-exp',
-    'gemini-2.0-flash-lite-preview-02-05'
-];
-
-// --- MOTEUR DE ROTATION INTELLIGENT ---
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// --- MOTEUR D'APPEL EDGE FUNCTION ---
+// The Edge Function handles model rotation, API keys, and retries.
+// The client just sends the payload.
 
 /**
  * Helper to get a fresh session token or fall back to Anon Key
  */
 const getFreshSessionToken = async (): Promise<{ token: string, isAnon: boolean }> => {
-    const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-    const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
+    if (!supabaseUrl || !supabaseAnonKey) {
         console.error("[Gemini] Critical: Missing Supabase configuration");
         throw new Error("Configuration Supabase manquante.");
     }
@@ -56,173 +22,61 @@ const getFreshSessionToken = async (): Promise<{ token: string, isAnon: boolean 
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error || !session?.access_token) {
-            // No active session, use Anon Key
-            return { token: supabaseKey, isAnon: true };
+            return { token: supabaseAnonKey, isAnon: true };
         }
-
-        // Check if token is expired or about to expire (optional, Supabase client handles auto-refresh usually)
-        // But we trust getSession() to return a valid one.
-        
         return { token: session.access_token, isAnon: false };
     } catch (e) {
         console.warn("[Gemini] Session fetch error, defaulting to Anon Key:", e);
-        return { token: supabaseKey, isAnon: true };
+        return { token: supabaseAnonKey, isAnon: true };
     }
 };
 
 /**
- * Exécute une requête standard (non-streaming) via Supabase Edge Function :
- * 1. Itère sur chaque MODÈLE de la liste.
- * 2. Appelle la fonction Edge (qui gère la rotation des clés).
+ * Exécute une requête via Supabase Edge Function
  */
-export const executeWithRotation = async (
-    modelList: string[], 
-    requestPayloadFn: (model: string) => any
+export const executeEdgeFunction = async (
+    action: 'generate' | 'stream',
+    payload: any
 ): Promise<any> => {
-    let lastError;
+    
+    // 1. Get Fresh Token
+    const { token: initialToken, isAnon } = await getFreshSessionToken();
+    
+    let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${initialToken}`,
+            'apikey': supabaseAnonKey
+        },
+        body: JSON.stringify({ ...payload, action })
+    });
 
-    // ROTATION NIVEAU 2 : MODÈLES
-    for (const model of modelList) {
-        // Retry loop for 5xx errors or transient network issues
-        for (let attempt = 0; attempt < 3; attempt++) { // Increased retries to 3
-            try {
-                const payload = requestPayloadFn(model);
-                
-                const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-                const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
-                
-                // 1. Get Fresh Token
-                const { token: initialToken, isAnon } = await getFreshSessionToken();
-                
-                console.log(`[Gemini] Requesting model: ${model} (Attempt ${attempt + 1})`);
-                
-                let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${initialToken}`,
-                        'apikey': supabaseKey
-                    },
-                    body: JSON.stringify({ ...payload, action: 'generate' })
-                });
-
-                // RETRY WITH ANON KEY ON 401 (If User Token failed)
-                if (response.status === 401 && !isAnon) {
-                    console.log("[Gemini] User Token rejected (401). seamlessly switching to Anon Key...");
-                    response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${supabaseKey}`, // Force Anon Key
-                            'apikey': supabaseKey
-                        },
-                        body: JSON.stringify({ ...payload, action: 'generate' })
-                    });
-                }
-
-                if (!response.ok) {
-                    const errText = await response.text();
-                    
-                    // Only logout if even the Anon Key failed (Critical Auth Failure)
-                    if (response.status === 401) {
-                        console.warn("[Gemini] Critical: Anon Key also rejected (401).");
-                    }
-
-                    throw new Error(`API Error ${response.status}: ${errText}`);
-                }
-
-                const data = await response.json();
-
-                return data; // Succès immédiat
-
-            } catch (e: any) {
-                const isQuota = e.message?.includes("429") || e.message?.includes("403");
-                const isServer = e.message?.includes("500");
-                const isNetwork = e.message?.includes("Failed to fetch") || e.name === 'TypeError';
-                
-                // Only log warnings for the first few failures to avoid console spam
-                if (attempt === 0) {
-                        console.warn(
-                        `⚠️ Echec [Model: ${model}] - ${isQuota ? 'QUOTA/RATE' : isServer ? 'SERVER ERROR' : isNetwork ? 'NETWORK ERROR' : e.message}`
-                    );
-                }
-                
-                if (isQuota) {
-                    await sleep(2000 + Math.random() * 3000); // Increased backoff 2-5s
-                    lastError = e;
-                    break; // Break retry loop, move to next model immediately
-                }
-
-                if (isServer || isNetwork) {
-                    await sleep(1000 * (attempt + 1)); // Exponential backoff: 1s, 2s, 3s
-                    lastError = e;
-                    continue; // Retry same model
-                }
-
-                lastError = e;
-                break; // Non-retriable error, move to next model
-            }
-        }
+    // RETRY WITH ANON KEY ON 401 (If User Token failed)
+    if (response.status === 401 && !isAnon) {
+        console.log("[Gemini] User Token rejected (401). seamlessly switching to Anon Key...");
+        response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseAnonKey}`,
+                'apikey': supabaseAnonKey
+            },
+            body: JSON.stringify({ ...payload, action })
+        });
     }
 
-    // Si on arrive ici, tout a échoué.
-    console.error("🔥 CRITICAL: All models exhausted.");
-    throw lastError || new Error("Service temporairement indisponible (Rotation épuisée).");
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`API Error ${response.status}: ${errText}`);
+    }
+
+    if (action === 'stream') {
+        return response; // Return the raw response for streaming
+    }
+
+    return await response.json();
 };
-
-/**
- * Exécute une requête de streaming via Supabase Edge Function.
- */
-async function* streamWithRotation(
-    modelList: string[],
-    requestPayloadFn: (model: string) => any
-) {
-    for (const model of modelList) {
-        try {
-            const payload = requestPayloadFn(model);
-            
-            // supabase.functions.invoke does not support streaming responses directly yet
-            // We need to use fetch with the supabase anon key
-            const { data: { session } } = await supabase.auth.getSession();
-            const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-            const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
-            
-            const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token || supabaseKey}`,
-                    'apikey': supabaseKey
-                },
-                body: JSON.stringify({ ...payload, action: 'stream' })
-            });
-
-            if (!response.ok || !response.body) {
-                 const errText = await response.text();
-                 console.error(`Stream error response:`, errText);
-                 throw new Error(`Stream error: ${response.status} - ${errText}`);
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                yield decoder.decode(value, { stream: true });
-            }
-            
-            return; // Succès total
-
-        } catch (e: any) {
-            console.warn(`⚠️ Stream Fail [Model: ${model}]`, e);
-            continue; // Modèle suivant
-        }
-    }
-
-    // Fallback ultime si tout échoue
-    yield "⚠️ Désolé, le service est saturé. Veuillez réessayer dans un instant.";
-}
 
 // --- SERVICES EXPORTÉS ---
 
@@ -247,15 +101,15 @@ export const generateSupportResponse = async (
     contents.push({ role: 'user', parts: [{ text: userQuery }] });
 
     try {
-        const response = await executeWithRotation(SUPPORT_MODELS, (model) => ({
-            model,
+        const response = await executeEdgeFunction('generate', {
+            modelType: 'support', // Tell Edge Function to use support models
             contents,
             config: {
-                systemInstruction: { parts: [{ text: systemInstruction }] }, // Fix format for API
+                systemInstruction: { parts: [{ text: systemInstruction }] },
                 maxOutputTokens: 2000, 
                 temperature: 0.5
             }
-        }));
+        });
         
         storageService.incrementSupportUsage();
         return response.candidates?.[0]?.content?.parts?.[0]?.text || "Je n'ai pas de réponse pour le moment.";
@@ -286,83 +140,32 @@ export async function* sendMessageStream(
   
   contents.push({ role: 'user', parts: [{ text: message }] });
 
-  // Use executeWithRotation logic for streaming too (manual implementation to support fallback)
-  const modelList = TEXT_MODELS;
-  let success = false;
-
-  for (const model of modelList) {
-      if (success) break;
-      
-      try {
-          const payload = {
-              model,
-              contents,
-              config: {
-                systemInstruction: { parts: [{ text: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!, user.aiMemory) }] },
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-              }
-          };
-
-          const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-          const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
-          
-          // 1. Get Fresh Token
-          const { token: initialToken, isAnon } = await getFreshSessionToken();
-
-          let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-              method: 'POST',
-              headers: { 
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${initialToken}`,
-                  'apikey': supabaseKey
-              },
-              body: JSON.stringify({ ...payload, action: 'stream' })
-          });
-
-          // RETRY WITH ANON KEY ON 401
-          if (response.status === 401 && !isAnon) {
-              console.log(`[Stream] User Token rejected for ${model}. Seamlessly switching to Anon Key...`);
-              response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-                  method: 'POST',
-                  headers: { 
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${supabaseKey}`,
-                      'apikey': supabaseKey
-                  },
-                  body: JSON.stringify({ ...payload, action: 'stream' })
-              });
+  try {
+      const response = await executeEdgeFunction('stream', {
+          modelType: 'text', // Tell Edge Function to use text models
+          contents,
+          config: {
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) }] },
+            temperature: 0.7,
+            maxOutputTokens: 8192,
           }
+      });
 
-          if (!response.ok || !response.body) {
-               const errText = await response.text();
-               console.warn(`Stream fail [${model}]: ${response.status} - ${errText}`);
-               continue; // Try next model
-          }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-
-          while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              if (chunk) yield chunk;
-          }
-          
-          success = true;
-          await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
-          return; // Exit function on success
-
-      } catch (e) {
-          console.warn(`Stream exception [${model}]:`, e);
-          continue;
+      while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk) yield chunk;
       }
-  }
+      
+      await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
 
-  if (!success) {
-      yield "⚠️ Désolé, tous les modèles sont saturés. Veuillez réessayer dans un instant.";
-      console.error("🔥 CRITICAL: All streaming models exhausted.");
+  } catch (e) {
+      console.error("Stream exception:", e);
+      yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer dans un instant.";
   }
 }
 
@@ -372,8 +175,8 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
     if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
     try {
-        const response = await executeWithRotation(AUDIO_MODELS, (model) => ({
-            model,
+        const response = await executeEdgeFunction('generate', {
+            modelType: 'audio', // Tell Edge Function to use audio models
             contents: [{ parts: [{ text: text }] }],
             config: {
                 responseModalities: [Modality.AUDIO],
@@ -383,7 +186,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
                     }
                 }
             }
-        }));
+        });
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
@@ -405,7 +208,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
 };
 
 // 4. EXTRACTION VOCABULAIRE
-export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
+export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> => {
     const user = await storageService.getCurrentUser();
     if (!user) return [];
 
@@ -413,8 +216,8 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
     const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words. Return JSON array [{word, translation, example}].\n${context}`;
 
     try {
-        const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-            model,
+        const response = await executeEdgeFunction('generate', {
+            modelType: 'text',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: "application/json",
@@ -430,7 +233,7 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
                     }
                 }
             }
-        }));
+        });
 
         // Vocabulary extraction is free (included in lesson cost)
         const rawData = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "[]");
@@ -456,8 +259,8 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     const prompt = `Génère 3 exercices (QCM/Vrai-Faux) pour niveau ${user.preferences?.level} (${user.preferences?.targetLanguage}). Format JSON Array.`;
 
     try {
-        const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-            model,
+        const response = await executeEdgeFunction('generate', {
+            modelType: 'text',
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: "application/json",
@@ -477,7 +280,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
                     }
                 }
             }
-        }));
+        });
         
         await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
         return JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "[]");
@@ -507,8 +310,8 @@ export const generateRoleplayResponse = async (
     if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
 
     try {
-        const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-            model,
+        const response = await executeEdgeFunction('generate', {
+            modelType: 'text',
             contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
             config: {
                 systemInstruction: { parts: [{ text: sysInstruct }] },
@@ -525,7 +328,7 @@ export const generateRoleplayResponse = async (
                     required: ["aiReply"]
                 }
             }
-        }));
+        });
 
         await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
         return JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
@@ -535,6 +338,5 @@ export const generateRoleplayResponse = async (
 };
 
 export const generateNextLessonPrompt = (user: UserProfile): string => {
-  const nextLessonNum = (user.stats.lessonsCompleted || 0) + 1;
-  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la Leçon ${nextLessonNum}.`;
+  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la prochaine leçon.`;
 };

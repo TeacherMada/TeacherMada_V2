@@ -11,6 +11,8 @@ interface LogEntry {
   details?: any;
 }
 
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
+
 const DebugConsole: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -27,9 +29,6 @@ const DebugConsole: React.FC = () => {
     }
 
     // Enable via triple tap on bottom left corner (simulated by hidden div)
-  }, []);
-
-  useEffect(() => {
     const originalLog = console.log;
     const originalWarn = console.warn;
     const originalError = console.error;
@@ -147,11 +146,9 @@ const DebugConsole: React.FC = () => {
             RESET APP
           </button>
           <button onClick={async () => {
-              const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-              const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
               console.log("Testing Connectivity...");
               console.log("URL:", supabaseUrl);
-              console.log("Key Length:", supabaseKey?.length);
+              console.log("Key Length:", supabaseAnonKey?.length);
               
               try {
                   // Test with a real generation request to check if Anon Key has permission
@@ -159,8 +156,8 @@ const DebugConsole: React.FC = () => {
                       method: 'POST',
                       headers: {
                           'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${supabaseKey}`,
-                          'apikey': supabaseKey
+                          'Authorization': `Bearer ${supabaseAnonKey}`,
+                          'apikey': supabaseAnonKey
                       },
                       body: JSON.stringify({ 
                           action: 'generate',
@@ -179,6 +176,33 @@ const DebugConsole: React.FC = () => {
               }
           }} className="p-1.5 hover:bg-blue-900/50 rounded text-blue-400 font-bold text-[10px] px-2" title="Test Connection">
             TEST CONN
+          </button>
+          <button onClick={async () => {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session) {
+                  console.error("No active session");
+                  alert("No active session. Please log in.");
+                  return;
+              }
+
+              console.log("Testing Credits RPC...");
+              try {
+                  // Test consume_credits with 0 amount to check balance and RPC existence
+                  const { data, error } = await supabase.rpc('consume_credits', { p_amount: 0 });
+                  
+                  if (error) {
+                      console.error("RPC Error:", error);
+                      alert(`RPC Error: ${error.message}`);
+                  } else {
+                      console.log("Current Credits (RPC):", data);
+                      alert(`Credits OK! Current Balance: ${data}`);
+                  }
+              } catch (e: any) {
+                  console.error("Test Exception:", e);
+                  alert(`Exception: ${e.message}`);
+              }
+          }} className="p-1.5 hover:bg-yellow-900/50 rounded text-yellow-400 font-bold text-[10px] px-2" title="Test Credits">
+            TEST CREDITS
           </button>
           <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded text-white/70">
             <X size={16} />

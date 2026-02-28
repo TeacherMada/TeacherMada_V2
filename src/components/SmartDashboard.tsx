@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences, SmartNotification } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3, Calendar } from 'lucide-react';
+import { UserProfile, ChatMessage, SmartNotification } from '../types';
+import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { toast } from './Toaster';
 import ExamResultView from '../modules/SmartExam/components/ExamResult';
@@ -58,8 +58,6 @@ const SmartDashboard: React.FC<Props> = ({
   
   // Edit Profile State
   const [editName, setEditName] = useState(user?.username || '');
-  const [editFullName, setEditFullName] = useState(user?.fullName || user?.username || '');
-  const [editPass, setEditPass] = useState(user?.password || '');
   const [startWithCert, setStartWithCert] = useState(false); // New state for direct cert access
 
   // Low Credit Check
@@ -107,7 +105,7 @@ const SmartDashboard: React.FC<Props> = ({
             examId: exam.id,
             userId: user.id,
             userName: user.username,
-            userFullName: user.fullName || user.username,
+            userFullName: user.username,
             language: exam.language,
             issueDate: exam.date,
             globalScore: score,
@@ -126,7 +124,7 @@ const SmartDashboard: React.FC<Props> = ({
 
   const handleSaveProfile = async () => {
       if (!editName.trim()) return;
-      const updated = { ...user, username: editName, fullName: editFullName, password: editPass };
+      const updated = { ...user, username: editName };
       await storageService.saveUserProfile(updated);
       onUpdateUser(updated);
       toast.success(t('common.success'));
@@ -188,7 +186,7 @@ const SmartDashboard: React.FC<Props> = ({
                   examId: cert.examId || '',
                   userId: cert.userId,
                   userName: cert.userName,
-                  userFullName: cert.userFullName || user.fullName || user.username,
+                  userFullName: cert.userFullName || user.username,
                   language: cert.language,
                   date: cert.issueDate,
                   globalScore: cert.globalScore || cert.score || 100,
@@ -210,7 +208,7 @@ const SmartDashboard: React.FC<Props> = ({
                   examId: exam.id,
                   userId: exam.userId,
                   userName: user.username,
-                  userFullName: user.fullName || user.username,
+                  userFullName: user.username,
                   language: exam.language,
                   date: exam.date,
                   globalScore: exam.score,
@@ -619,7 +617,7 @@ const SmartDashboard: React.FC<Props> = ({
                                             examId: cert.examId || '',
                                             userId: cert.userId,
                                             userName: cert.userName,
-                                            userFullName: cert.userFullName || user.fullName || user.username,
+                                            userFullName: cert.userFullName || user.username,
                                             language: cert.language,
                                             date: cert.issueDate,
                                             globalScore: cert.globalScore,
@@ -698,7 +696,7 @@ const SmartDashboard: React.FC<Props> = ({
                                             examId: exam.id,
                                             userId: exam.userId,
                                             userName: user.username,
-                                            userFullName: user.fullName || user.username,
+                                            userFullName: user.username,
                                             language: exam.language,
                                             date: exam.date,
                                             globalScore: exam.score,
@@ -760,26 +758,6 @@ const SmartDashboard: React.FC<Props> = ({
                                 type="text" 
                                 value={editName} 
                                 onChange={e => setEditName(e.target.value)} 
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.fullname')}</label>
-                            <input 
-                                type="text" 
-                                value={editFullName} 
-                                onChange={e => setEditFullName(e.target.value)} 
-                                placeholder={t('dashboard.fullname_placeholder')}
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.new_pwd')}</label>
-                            <input 
-                                type="text" 
-                                value={editPass} 
-                                onChange={e => setEditPass(e.target.value)} 
-                                placeholder={t('dashboard.pwd_placeholder')}
                                 className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
                             />
                         </div>

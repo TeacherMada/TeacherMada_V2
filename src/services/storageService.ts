@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
-import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode, ExamResult, Certificate, SmartNotification } from "../types";
+import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode, ExamResult, Certificate, SmartNotification, UserWeakness } from "../types";
 import { toast } from "../components/Toaster";
 
 const LOCAL_STORAGE_KEY = 'teachermada_user_data';
@@ -30,33 +30,12 @@ const notifySyncListeners = (status: SyncStatus) => {
 const mapProfile = (data: any): UserProfile => ({
     id: data.id,
     username: data.username || "Utilisateur",
-    fullName: data.full_name || data.username || "Utilisateur", // Map full_name
     email: data.email,
-    phoneNumber: data.phone_number,
     role: data.role || 'user',
     credits: data.credits ?? 0,
-    xp: data.xp ?? 0,
-    stats: {
-        lessonsCompleted: data.lessons_completed || 0,
-        exercisesCompleted: data.exercises_completed || 0,
-        dialoguesCompleted: data.dialogues_completed || 0
-    },
     preferences: data.preferences,
-    vocabulary: data.vocabulary || [],
-    freeUsage: data.free_usage || { count: 0, lastResetWeek: new Date().toISOString() },
-    aiMemory: typeof data.ai_memory === 'string' 
-        ? JSON.parse(data.ai_memory) 
-        : (data.ai_memory || {
-            masteredVocabulary: [],
-            frequentErrors: [],
-            completedConcepts: [],
-            currentDifficulties: [],
-            lastLesson: "Introduction",
-            weeklyGoal: "Découverte",
-            successRate: 100,
-            lastUpdate: Date.now()
-        }),
     createdAt: new Date(data.created_at).getTime(),
+    updatedAt: new Date(data.updated_at).getTime(),
     isSuspended: data.is_suspended
 });
 
@@ -67,31 +46,17 @@ const formatLoginEmail = (input: string) => {
     return `${cleanId}@teachermada.com`;
 };
 
-// Helper pour créer un profil DB
-const createDefaultProfilePayload = (id: string, username: string, email: string, phone: string = "") => ({
+// Helper pour créer un profil DB (Note: Trigger does this now, but kept for fallback)
+const createDefaultProfilePayload = (id: string, username: string, email: string) => ({
     id: id,
     username: username,
     email: email,
-    phone_number: phone,
     role: 'user',
-    credits: 6, // Crédits de bienvenue (Serveur seulement)
-    xp: 0,
-    stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 },
-    vocabulary: [],
+    credits: 6,
     preferences: null,
-    free_usage: { count: 0, lastResetWeek: new Date().toISOString() },
-    ai_memory: {
-        masteredVocabulary: [],
-        frequentErrors: [],
-        completedConcepts: [],
-        currentDifficulties: [],
-        lastLesson: "Introduction",
-        weeklyGoal: "Découverte",
-        successRate: 100,
-        lastUpdate: Date.now()
-    },
     is_suspended: false,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
 });
 
 export const storageService = {
@@ -301,6 +266,30 @@ export const storageService = {
     }
   },
 
+  getUserWeaknesses: async (userId: string): Promise<UserWeakness[]> => {
+      if (!isSupabaseConfigured()) return [];
+      const { data, error } = await supabase
+          .from('user_weakness')
+          .select('*')
+          .eq('user_id', userId)
+          .order('error_count', { ascending: false })
+          .limit(10);
+      
+      if (error) {
+          console.error("Error fetching weaknesses:", error);
+          return [];
+      }
+      
+      return data.map((w: any) => ({
+          id: w.id,
+          userId: w.user_id,
+          category: w.category,
+          tag: w.tag,
+          errorCount: w.error_count,
+          lastSeen: new Date(w.last_seen).getTime()
+      }));
+  },
+
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
     
@@ -328,7 +317,7 @@ export const storageService = {
         if (!authData.user) return { success: false, error: "Erreur création compte." };
 
         // Création explicite du profil
-        const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail, phoneNumber?.trim() || "");
+        const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail);
         await supabase.from('profiles').insert([payload]);
 
         // Vérification
@@ -460,31 +449,10 @@ export const storageService = {
           const updates = {
               username: user.username,
               // Ne PAS envoyer les crédits ici pour éviter d'écraser la DB avec une vieille valeur locale
-              xp: user.xp,
-              lessons_completed: user.stats.lessonsCompleted,
-              exercises_completed: user.stats.exercisesCompleted,
-              dialogues_completed: user.stats.dialoguesCompleted,
-              vocabulary: user.vocabulary,
-              preferences: user.preferences,
-              free_usage: user.freeUsage,
-              ai_memory: user.aiMemory
+              preferences: user.preferences
           };
 
           await supabase.from('profiles').update(updates).eq('id', user.id);
-
-          // Sync vocabulary to the new normalized table
-          if (user.vocabulary && user.vocabulary.length > 0) {
-              const vocabPayload = user.vocabulary.map(v => ({
-                  user_id: user.id,
-                  word: v.word,
-                  translation: v.translation,
-                  example: v.example || null,
-                  mastered: v.mastered || false
-              }));
-              
-              // We use upsert to avoid duplicate key errors (user_id, word)
-              await supabase.from('user_vocabulary').upsert(vocabPayload, { onConflict: 'user_id, word' });
-          }
           notifySyncListeners('synced');
       } catch (e) {
           console.warn("Sync error:", e);
@@ -535,8 +503,8 @@ export const storageService = {
       }
       try {
           // Use Supabase RPC for atomic deduction
+          // V4 RPC uses auth.uid() internally, so we just pass the amount
           const { data, error } = await supabase.rpc('consume_credits', {
-              p_user_id: userId,
               p_amount: amount
           });
 
@@ -545,9 +513,9 @@ export const storageService = {
               return false;
           }
 
-          if (data === true) {
+          if (typeof data === 'number') {
               const local = storageService.getLocalUser();
-              if (local) storageService.saveLocalUser({ ...local, credits: Math.max(0, local.credits - amount) });
+              if (local) storageService.saveLocalUser({ ...local, credits: data });
               return true;
           } else {
               // Insufficient funds
@@ -562,8 +530,8 @@ export const storageService = {
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
       if (!isSupabaseConfigured()) return false;
       try {
-          const { error } = await supabase.rpc('add_credits', {
-              p_user_id: userId,
+          const { error } = await supabase.rpc('admin_add_credits', {
+              p_target_user: userId,
               p_amount: amount
           });
           
@@ -926,9 +894,12 @@ export const storageService = {
             if (data) {
                 const session: LearningSession = {
                     id: data.id,
+                    userId: data.user_id,
+                    type: data.type as any,
+                    language: data.language,
+                    level: data.level,
                     messages: data.messages || [],
-                    progress: data.progress || 0,
-                    score: data.score || 0
+                    updatedAt: new Date(data.updated_at).getTime()
                 };
                 localStorage.setItem(key, JSON.stringify(session)); // Sync local
                 return session;
@@ -947,49 +918,47 @@ export const storageService = {
             supabase.from('learning_sessions').upsert({
                 id: key,
                 user_id: userId,
-                target_language: cleanLang,
+                type: 'lesson', // Default fallback
+                language: cleanLang,
                 level: prefs.level,
-                mode: cleanMode,
-                messages: session.messages,
-                progress: session.progress,
-                score: session.score
+                messages: session.messages
             }).then();
         }
         return session;
     }
 
     // 3. Create New
-    const newSession: LearningSession = { id: key, messages: [], progress: 0, score: 0 };
-    await storageService.saveSession(newSession, userId, prefs);
+    const newSession: LearningSession = { 
+        id: key, 
+        userId,
+        type: 'lesson',
+        language: cleanLang,
+        level: prefs.level,
+        messages: [], 
+        updatedAt: Date.now() 
+    };
+    await storageService.saveSession(newSession);
     return newSession;
   },
 
-  saveSession: async (session: LearningSession, userId?: string, prefs?: UserPreferences) => {
-    localStorage.setItem(session.id, JSON.stringify(session));
+  saveSession: async (session: LearningSession) => {
+    // Limit messages to 30 to prevent DB bloat
+    const limitedMessages = session.messages.slice(-30);
+    const sessionToSave = { ...session, messages: limitedMessages, updatedAt: Date.now() };
+    
+    localStorage.setItem(session.id, JSON.stringify(sessionToSave));
     
     if (isSupabaseConfigured()) {
         notifySyncListeners('syncing');
         try {
-            if (userId && prefs) {
-                const cleanLang = prefs.targetLanguage.split(' ')[0];
-                const cleanMode = prefs.mode.replace(/\s/g, '_');
-                await supabase.from('learning_sessions').upsert({
-                    id: session.id,
-                    user_id: userId,
-                    target_language: cleanLang,
-                    level: prefs.level,
-                    mode: cleanMode,
-                    messages: session.messages,
-                    progress: session.progress,
-                    score: session.score
-                });
-            } else {
-                await supabase.from('learning_sessions').update({
-                    messages: session.messages,
-                    progress: session.progress,
-                    score: session.score
-                }).eq('id', session.id);
-            }
+            await supabase.from('learning_sessions').upsert({
+                id: sessionToSave.id,
+                user_id: sessionToSave.userId,
+                type: sessionToSave.type,
+                language: sessionToSave.language,
+                level: sessionToSave.level,
+                messages: sessionToSave.messages
+            });
             notifySyncListeners('synced');
         } catch (e) {
             console.warn("Error saving session to Supabase:", e);
@@ -1094,12 +1063,10 @@ export const storageService = {
               }
 
               const settings: SystemSettings = {
-                  apiKeys: data.api_keys || [],
-                  activeModel: data.active_model || 'gemini-3-flash-preview',
                   creditPrice: data.credit_price || 50,
-                  customLanguages: data.custom_languages || [],
                   validTransactionRefs: normalizedCoupons,
-                  adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+                  adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" },
+                  updatedAt: Date.now()
               };
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
@@ -1112,8 +1079,10 @@ export const storageService = {
       const local = localStorage.getItem(SETTINGS_KEY);
       if (local) return JSON.parse(local);
       return {
-          apiKeys: [], activeModel: 'gemini-3-flash-preview', creditPrice: 50, customLanguages: [],
-          validTransactionRefs: [], adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+          creditPrice: 50,
+          validTransactionRefs: [],
+          adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" },
+          updatedAt: Date.now()
       };
   },
 
@@ -1123,8 +1092,8 @@ export const storageService = {
       try {
           const payload = {
               id: 1,
-              api_keys: settings.apiKeys, active_model: settings.activeModel, credit_price: settings.creditPrice,
-              custom_languages: settings.customLanguages, valid_transaction_refs: settings.validTransactionRefs,
+              credit_price: settings.creditPrice,
+              valid_transaction_refs: settings.validTransactionRefs,
               admin_contact: settings.adminContact
           };
           const { error } = await supabase.from('system_settings').upsert(payload);
@@ -1157,9 +1126,9 @@ export const storageService = {
       try {
           const text = await file.text();
           const data = JSON.parse(text);
-          if (data.username && data.stats) {
+          if (data.username) {
               const updated = {
-                  username: data.username, stats: data.stats, vocabulary: data.vocabulary, preferences: data.preferences
+                  username: data.username, preferences: data.preferences
               };
               const { error } = await supabase.from('profiles').update(updated).eq('id', currentUserId);
               return !error;

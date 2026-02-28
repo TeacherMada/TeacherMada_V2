@@ -32,21 +32,6 @@ export enum LearningMode {
 
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
-export interface VocabularyItem {
-  id: string;
-  word: string;
-  translation: string;
-  example?: string;
-  mastered: boolean;
-  addedAt: number;
-}
-
-export interface UserStats {
-  lessonsCompleted: number;
-  exercisesCompleted: number;
-  dialoguesCompleted: number;
-}
-
 export interface UserPreferences {
   targetLanguage: string;
   level: string;
@@ -54,7 +39,15 @@ export interface UserPreferences {
   mode: string;
   voiceName: VoiceName;
   needsAssessment?: boolean;
-  history?: Record<string, UserStats>; // Stores progress per language
+}
+
+export interface UserWeakness {
+  id: string;
+  userId: string;
+  category: string;
+  tag: string;
+  errorCount: number;
+  lastSeen: number;
 }
 
 export interface ChatMessage {
@@ -66,9 +59,12 @@ export interface ChatMessage {
 
 export interface LearningSession {
   id: string; 
+  userId: string;
+  type: 'lesson' | 'exercise' | 'dialogue' | 'exam' | 'call';
+  language: string;
+  level: string;
   messages: ChatMessage[];
-  progress: number;
-  score: number;
+  updatedAt: number;
 }
 
 export type NotificationType = 'credit' | 'admin' | 'achievement' | 'system' | 'info' | 'warning';
@@ -84,54 +80,16 @@ export interface SmartNotification {
     data?: any;
 }
 
-export interface LearningBrainScore {
-  pronunciation: number;
-  grammar: number;
-  vocabulary: number;
-  fluency: number;
-  structure: number;
-  overall: number;
-}
-
-export interface LearningProfile {
-  brainScore: LearningBrainScore;
-  weaknesses: string[];
-  strengths: string[];
-  lastAnalysisTimestamp: number;
-}
-
-export interface LearningMemory {
-  masteredVocabulary: string[];
-  frequentErrors: string[];
-  completedConcepts: string[];
-  currentDifficulties: string[];
-  lastLesson: string;
-  weeklyGoal: string;
-  successRate: number;
-  lastUpdate: number;
-}
-
 export interface UserProfile {
   id: string;
   username: string;
-  fullName?: string; // Added for real name support
   email?: string;
-  phoneNumber?: string;
-  password?: string;
   role: UserRole;
-  createdAt: number;
-  preferences: UserPreferences | null;
-  stats: UserStats;
-  vocabulary: VocabularyItem[];
   credits: number;
-  xp: number;
-  freeUsage?: {
-    lastResetWeek: string;
-    count: number;
-  };
-  aiMemory?: LearningMemory; // Changed from string
+  preferences: UserPreferences | null;
   isSuspended?: boolean;
-  learningProfile?: LearningProfile;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface AdminRequest {
@@ -152,16 +110,14 @@ export interface CouponCode {
 }
 
 export interface SystemSettings {
-  apiKeys: string[];
-  activeModel: string;
   creditPrice?: number;
-  customLanguages?: Array<{code: string, baseName: string, flag: string}>;
   validTransactionRefs?: CouponCode[];
-  adminContact: {
+  adminContact?: {
     telma: string;
     airtel: string;
     orange: string;
   };
+  updatedAt: number;
 }
 
 export interface LevelDescriptor {
@@ -190,14 +146,14 @@ export interface ExamResult {
   totalQuestions: number;
   passed: boolean;
   date: number;
-  details: any; // Flexible to store ExamResultDetailed
+  details: any;
 }
 
 export interface Certificate {
   id: string;
   userId: string;
   userName: string;
-  userFullName?: string; // Added for real name
+  userFullName?: string;
   language: string;
   level: string;
   issueDate: number;

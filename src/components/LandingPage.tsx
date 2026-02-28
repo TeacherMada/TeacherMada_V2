@@ -82,8 +82,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       
       // 3. Load Languages
       const loadLangs = async () => {
-          const settings = await storageService.loadSystemSettings(); // Ensures Supabase fetch
-          const customLangs = settings.customLanguages || [];
           const staticLangs = Object.values(TargetLanguage);
           
           const formattedStatic = staticLangs.map(l => ({
@@ -92,7 +90,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
               flag: (l as string).split(' ')[1] || '🏳️'
           }));
 
-          setDynamicLanguages([...formattedStatic, ...customLangs]);
+          setDynamicLanguages(formattedStatic);
       };
 
       loadStats();

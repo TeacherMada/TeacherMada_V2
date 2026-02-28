@@ -58,6 +58,14 @@ class KeyManager {
 
 const keyManager = new KeyManager(Deno.env.get('GOOGLE_API_KEYS') || Deno.env.get('GEMINI_API_KEY') || '');
 
+const MODEL_MAP: Record<string, string> = {
+  'text': 'gemini-2.5-flash',
+  'support': 'gemini-2.5-flash',
+  'audio': 'gemini-2.5-flash-preview-tts',
+  'vision': 'gemini-2.5-flash',
+  'default': 'gemini-2.5-flash'
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -65,9 +73,9 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    let action = url.searchParams.get('action');
+    const actionParam = url.searchParams.get('action');
 
-    if (action === 'live') {
+    if (actionParam === 'live') {
       if (req.headers.get("upgrade") != "websocket") {
         return new Response("Expected websocket", { status: 400 });
       }
@@ -105,7 +113,9 @@ Deno.serve(async (req) => {
                 config,
                 callbacks: {
                   onopen: () => {
-                    socket.send(JSON.stringify({ type: 'open' }));
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ type: 'open' }));
+                    }
                     keyManager.reportSuccess(apiKey);
                   },
                   onmessage: (msg) => {
@@ -124,7 +134,7 @@ Deno.serve(async (req) => {
               });
             } catch (err) {
               keyManager.reportFailure(apiKey);
-              socket.close(1011, 'Failed to connect to Gemini');
+              if (socket.readyState === WebSocket.OPEN) socket.close(1011, 'Failed to connect to Gemini');
             } finally {
               isConnecting = false;
             }
@@ -149,18 +159,26 @@ Deno.serve(async (req) => {
       return response;
     }
 
-    if (action === 'ping') {
+    if (actionParam === 'ping') {
       return new Response(JSON.stringify({ message: 'pong', status: 'ok' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
     const body = await req.json();
-    const { model, contents, config } = body;
-    action = action || body.action || 'generate';
+    let { action, model, modelType, contents, config } = body;
     
-    // Validate contents for generate/stream actions
-    if ((action === 'generate' || action === 'stream') && !contents) {
+    // Use action from body or URL param
+    action = action || actionParam || 'generate';
+
+    // Resolve model from modelType if model is not explicitly provided
+    if (!model && modelType) {
+      model = MODEL_MAP[modelType] || MODEL_MAP['default'];
+    }
+    if (!model) model = MODEL_MAP['default'];
+
+    // Validate contents
+    if (!contents) {
        return new Response(JSON.stringify({ error: 'Missing contents' }), {
          status: 400,
          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -172,7 +190,7 @@ Deno.serve(async (req) => {
 
     if (action === 'stream') {
       const result = await client.models.generateContentStream({
-        model: model || 'gemini-2.5-flash',
+        model,
         contents,
         config
       });
@@ -190,6 +208,7 @@ Deno.serve(async (req) => {
             }
             controller.close();
           } catch (err) {
+            console.error("Stream error:", err);
             controller.error(err);
           }
         }
@@ -203,12 +222,15 @@ Deno.serve(async (req) => {
         }
       });
     } else {
+      // Default action: generate
       const response = await client.models.generateContent({
-        model: model || 'gemini-2.5-flash',
+        model,
         contents,
         config
       });
+      
       keyManager.reportSuccess(apiKey);
+      
       return new Response(JSON.stringify({
         text: response.text,
         candidates: response.candidates,

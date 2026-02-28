@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, MessageSquare, Plus, Minus, RefreshCw, Banknote, Shield, Loader2, Trash2, CheckCircle, X, Globe, Info } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, MessageSquare, Plus, Minus, RefreshCw, Banknote, Shield, Loader2, Trash2, CheckCircle, X, Info } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -13,22 +13,18 @@ interface AdminDashboardProps {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notify }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'settings' | 'languages'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'settings'>('users');
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(storageService.getSystemSettings());
   const [isLoading, setIsLoading] = useState(false);
   
-  const [newLangName, setNewLangName] = useState('');
-  const [newLangFlag, setNewLangFlag] = useState('');
-  
   // New State for Coupon Generation
   const [newTransactionRef, setNewTransactionRef] = useState('');
   const [couponAmount, setCouponAmount] = useState<number>(10);
 
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
-  const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
@@ -77,20 +73,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       }
   };
 
-  const handlePasswordChange = (userId: string, val: string) => {
-      setPasswordInputs(prev => ({ ...prev, [userId]: val }));
-  };
-
-  const saveNewPassword = async (user: UserProfile) => {
-      const newPass = passwordInputs[user.id];
-      if (newPass && newPass.trim().length > 0) {
-          await storageService.saveUserProfile({ ...user, password: newPass });
-          setPasswordInputs(prev => ({ ...prev, [user.id]: '' }));
-          await refreshData();
-          notify(`Mot de passe mis à jour pour ${user.username}.`, 'success');
-      }
-  };
-
   const toggleSuspend = async (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
       await storageService.saveUserProfile(updated);
@@ -111,30 +93,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       } else {
           notify("Erreur lors de la sauvegarde. Vérifiez les permissions DB.", 'error');
       }
-  };
-
-  const handleAddLanguage = async () => {
-      if (!newLangName.trim() || !newLangFlag.trim()) return;
-      const code = `${newLangName} ${newLangFlag}`;
-      const newLang = { code, baseName: newLangName, flag: newLangFlag };
-      
-      const updatedSettings = { ...settings, customLanguages: [...(settings.customLanguages || []), newLang] };
-      setSettings(updatedSettings);
-      
-      const success = await storageService.updateSystemSettings(updatedSettings);
-      if (success) {
-          setNewLangName(''); setNewLangFlag('');
-          notify(`Langue ajoutée : ${newLangName}`, 'success');
-      } else {
-          notify("Erreur serveur : Langue non sauvegardée.", 'error');
-      }
-  };
-
-  const removeLanguage = async (code: string) => {
-      const updatedSettings = { ...settings, customLanguages: (settings.customLanguages || []).filter(l => l.code !== code) };
-      setSettings(updatedSettings);
-      await storageService.updateSystemSettings(updatedSettings);
-      notify("Langue supprimée.", 'info');
   };
 
   // --- COUPON MANAGEMENT ---
@@ -227,7 +185,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
         <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide pb-2">
             <Tab active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<Users className="w-4 h-4"/>} label="Utilisateurs" />
             <Tab active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} icon={<MessageSquare className="w-4 h-4"/>} label="Demandes" count={(requests || []).filter(r => r.status === 'pending').length} />
-            <Tab active={activeTab === 'languages'} onClick={() => setActiveTab('languages')} icon={<Globe className="w-4 h-4"/>} label="Langues" />
             <Tab active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings className="w-4 h-4"/>} label="Système" />
         </div>
 
@@ -247,7 +204,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                 <th className="p-5">Utilisateur</th>
                                 <th className="p-5">Crédits</th>
                                 <th className="p-5">Modification</th>
-                                <th className="p-5">Sécurité</th>
                                 <th className="p-5 text-right">Action</th>
                             </tr>
                         </thead>
@@ -264,12 +220,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                             <input type="number" placeholder="0" value={manualCreditInputs[user.id] || ''} onChange={(e) => handleManualCreditChange(user.id, e.target.value)} className="w-16 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-center font-bold" />
                                             <button onClick={() => executeManualCredit(user.id, 1)} className="p-2 bg-emerald-500 text-white rounded-lg"><Plus className="w-4 h-4"/></button>
                                             <button onClick={() => executeManualCredit(user.id, -1)} className="p-2 bg-red-500 text-white rounded-lg"><Minus className="w-4 h-4"/></button>
-                                        </div>
-                                    </td>
-                                    <td className="p-5">
-                                        <div className="flex items-center gap-1">
-                                            <input type="text" placeholder="Pass" value={passwordInputs[user.id] || ''} onChange={(e) => handlePasswordChange(user.id, e.target.value)} className="w-24 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-xs" />
-                                            <button onClick={() => saveNewPassword(user)} className="p-2 bg-indigo-600 text-white rounded-lg"><Save className="w-4 h-4"/></button>
                                         </div>
                                     </td>
                                     <td className="p-5 text-right">
@@ -399,40 +349,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             </div>
         )}
 
-        {/* LANGUAGES TAB */}
-        {activeTab === 'languages' && (
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5">
-                <h3 className="text-xl font-black mb-8">Gestion des Langues (Synchronisé Supabase)</h3>
-                <div className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl">
-                    <div className="flex-1 space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Nom de la langue</label>
-                        <input type="text" placeholder="ex: Italien" value={newLangName} onChange={e => setNewLangName(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                    <div className="w-full md:w-32 space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Drapeau</label>
-                        <input type="text" placeholder="ex: 🇮🇹" value={newLangFlag} onChange={e => setNewLangFlag(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center text-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                    <div className="flex items-end">
-                        <button onClick={handleAddLanguage} className="w-full md:w-auto px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20 hover:scale-105 transition-transform">Ajouter</button>
-                    </div>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {settings.customLanguages?.map(lang => (
-                        <div key={lang.code} className="p-5 bg-white dark:bg-slate-900 rounded-[1.5rem] flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/30">
-                            <div className="flex items-center gap-4">
-                                <span className="text-4xl shadow-sm p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{lang.flag}</span>
-                                <div>
-                                    <span className="font-black text-lg text-slate-800 dark:text-white block">{lang.baseName}</span>
-                                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">Custom</span>
-                                </div>
-                            </div>
-                            <button onClick={() => removeLanguage(lang.code)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-xl"><X className="w-5 h-5"/></button>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
+
 
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
@@ -445,11 +362,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-2">Contact Telma</label>
-                        <input type="text" value={settings.adminContact.telma} onChange={e => setSettings({...settings, adminContact: {...settings.adminContact, telma: e.target.value}})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-xl border border-transparent focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="text" value={settings.adminContact?.telma || ''} onChange={e => setSettings({...settings, adminContact: {...(settings.adminContact || { telma: '', airtel: '', orange: '' }), telma: e.target.value}})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-xl border border-transparent focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                     <div className="space-y-3">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-2">Contact Airtel</label>
-                        <input type="text" value={settings.adminContact.airtel} onChange={e => setSettings({...settings, adminContact: {...settings.adminContact, airtel: e.target.value}})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-xl border border-transparent focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="text" value={settings.adminContact?.airtel || ''} onChange={e => setSettings({...settings, adminContact: {...(settings.adminContact || { telma: '', airtel: '', orange: '' }), airtel: e.target.value}})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-xl border border-transparent focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                 </div>
                 <button onClick={saveSettings} className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-3 transition-transform active:scale-[0.99]">

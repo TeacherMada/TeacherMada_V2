@@ -1,9 +1,9 @@
 
 import { Type } from "@google/genai";
 import { UserProfile } from "../../types";
-import { SmartExam, ExamResultDetailed, CertificateMetadata, ExamType } from "./types";
+import { SmartExam, ExamResultDetailed, ExamType } from "./types";
 import { storageService } from "../../services/storageService";
-import { executeWithRotation, TEXT_MODELS } from "../../services/geminiService";
+import { executeEdgeFunction } from "../../services/geminiService";
 import { creditService, CREDIT_COSTS } from "../../services/creditService";
 
 export const SmartExamService = {
@@ -23,7 +23,13 @@ export const SmartExamService = {
 
         const level = user.preferences?.level || 'A1';
         const lang = user.preferences?.targetLanguage || 'Anglais';
-        const difficulties = user.aiMemory?.currentDifficulties?.join(', ') || 'Aucune difficulté majeure';
+        
+        // Fetch weaknesses from storage instead of user.aiMemory
+        const weaknesses = await storageService.getUserWeaknesses(user.id);
+        const difficulties = weaknesses.length > 0 
+            ? weaknesses.map(w => w.tag).join(', ') 
+            : 'Aucune difficulté majeure';
+            
         const explanationLang = user.preferences?.explanationLanguage || 'Français';
 
         try {
@@ -59,8 +65,8 @@ export const SmartExamService = {
             }
             `;
 
-            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-                model,
+            const response = await executeEdgeFunction('generate', {
+                modelType: 'text',
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config: {
                     responseMimeType: "application/json",
@@ -85,7 +91,7 @@ export const SmartExamService = {
                         }
                     }
                 }
-            }));
+            });
 
             const data = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
             
@@ -142,8 +148,8 @@ export const SmartExamService = {
         `;
 
         try {
-            const response = await executeWithRotation(TEXT_MODELS, (model) => ({
-                model,
+            const response = await executeEdgeFunction('generate', {
+                modelType: 'text',
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config: {
                     responseMimeType: "application/json",
@@ -166,7 +172,7 @@ export const SmartExamService = {
                         }
                     }
                 }
-            }));
+            });
 
             const evalData = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
             const passed = (evalData.globalScore || 0) >= 70; // Seuil strict
@@ -179,7 +185,7 @@ export const SmartExamService = {
                     id: certId,
                     userId: user.id,
                     userName: user.username,
-                    userFullName: user.fullName || user.username, // Use full name
+                    userFullName: user.username, // Use full name
                     language: user.preferences?.targetLanguage || "Inconnu",
                     level: exam.targetLevel,
                     examId: exam.id,
@@ -214,7 +220,7 @@ export const SmartExamService = {
                 examId: exam.id,
                 userId: user.id,
                 userName: user.username,
-                userFullName: user.fullName || user.username, // Use full name
+                userFullName: user.username, // Use full name
                 language: exam.language,
                 date: Date.now(),
                 globalScore: evalData.globalScore || 0,
