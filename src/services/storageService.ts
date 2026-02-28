@@ -237,20 +237,19 @@ export const storageService = {
             
             // Si toujours pas de profil, c'est une erreur critique de données ou de droits
             if (!user) {
-                console.error("Login successful but profile not found for ID:", authData.user.id);
-                // Tentative de récupération d'erreur plus précise
-                const { error: profileError } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', authData.user.id)
-                    .single();
+                console.warn("Profile not found, attempting to auto-create for ID:", authData.user.id);
                 
-                if (profileError) {
-                     console.error("Profile fetch error details:", profileError);
-                     return { success: false, error: `Erreur récupération profil: ${profileError.message}` };
+                const usernameFallback = authData.user.user_metadata?.username || email.split('@')[0];
+                const payload = createDefaultProfilePayload(authData.user.id, usernameFallback, email);
+                
+                const { error: insertError } = await supabase.from('profiles').insert([payload]);
+                
+                if (insertError) {
+                    console.error("Failed to auto-create profile:", insertError);
+                    return { success: false, error: "Profil introuvable et impossible à recréer automatiquement." };
                 }
-
-                return { success: false, error: "Impossible de charger le profil (Données manquantes)." };
+                
+                user = mapProfile(payload);
             }
 
             if (user.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
@@ -316,9 +315,13 @@ export const storageService = {
         if (authError) return { success: false, error: authError.message };
         if (!authData.user) return { success: false, error: "Erreur création compte." };
 
-        // Création explicite du profil
+        // Création explicite du profil (fallback si le trigger DB n'est pas actif)
         const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail);
-        await supabase.from('profiles').insert([payload]);
+        const { error: insertError } = await supabase.from('profiles').insert([payload]);
+        
+        if (insertError && insertError.code !== '23505') { // Ignore duplicate key if trigger already created it
+            console.warn("Erreur insertion profil (peut être ignorée si trigger actif):", insertError);
+        }
 
         // Vérification
         const newUser = mapProfile(payload);
@@ -385,7 +388,20 @@ export const storageService = {
 
           if (session?.user) {
               // Si connecté, on force le fetch DB pour avoir les vrais crédits
-              const dbUser = await storageService.getUserById(session.user.id);
+              let dbUser = await storageService.getUserById(session.user.id);
+              
+              if (!dbUser) {
+                  console.warn("Profile missing in getCurrentUser, auto-creating...");
+                  const email = session.user.email || '';
+                  const usernameFallback = session.user.user_metadata?.username || email.split('@')[0] || 'User';
+                  const payload = createDefaultProfilePayload(session.user.id, usernameFallback, email);
+                  
+                  const { error: insertError } = await supabase.from('profiles').insert([payload]);
+                  if (!insertError) {
+                      dbUser = mapProfile(payload);
+                  }
+              }
+
               if (dbUser) {
                   // PROTECTION: Si la DB a perdu les préférences (ou pas encore sync), on garde celles en local
                   if (!dbUser.preferences && localUser?.preferences && localUser.id === dbUser.id) {
