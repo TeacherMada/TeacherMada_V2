@@ -1,4 +1,6 @@
 -- Function to consume credits safely
+drop function if exists consume_credits(int);
+
 create or replace function consume_credits(p_amount int)
 returns int
 language plpgsql
@@ -30,6 +32,8 @@ end;
 $$;
 
 -- Function to add credits (Admin only)
+drop function if exists admin_add_credits(uuid, int);
+
 create or replace function admin_add_credits(p_target_user uuid, p_amount int)
 returns void
 language plpgsql
