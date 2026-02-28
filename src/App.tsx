@@ -145,7 +145,7 @@ const AppContent: React.FC = () => {
     // Real-time Remote Subscription (Credits, XP, etc.)
     let unsubscribeRemote = () => {};
     if (user?.id) {
-        unsubscribeRemote = (storageService as any).subscribeToRemoteChanges(user.id);
+        unsubscribeRemote = storageService.subscribeToRemoteChanges(user.id);
     }
 
     return () => {

@@ -41,6 +41,36 @@ export const LIVE_MODELS = [
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * Helper to get a fresh session token or fall back to Anon Key
+ */
+const getFreshSessionToken = async (): Promise<{ token: string, isAnon: boolean }> => {
+    const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+    const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+        console.error("[Gemini] Critical: Missing Supabase configuration");
+        throw new Error("Configuration Supabase manquante.");
+    }
+
+    try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error || !session?.access_token) {
+            // No active session, use Anon Key
+            return { token: supabaseKey, isAnon: true };
+        }
+
+        // Check if token is expired or about to expire (optional, Supabase client handles auto-refresh usually)
+        // But we trust getSession() to return a valid one.
+        
+        return { token: session.access_token, isAnon: false };
+    } catch (e) {
+        console.warn("[Gemini] Session fetch error, defaulting to Anon Key:", e);
+        return { token: supabaseKey, isAnon: true };
+    }
+};
+
+/**
  * Exécute une requête standard (non-streaming) via Supabase Edge Function :
  * 1. Itère sur chaque MODÈLE de la liste.
  * 2. Appelle la fonction Edge (qui gère la rotation des clés).
@@ -58,29 +88,19 @@ export const executeWithRotation = async (
             try {
                 const payload = requestPayloadFn(model);
                 
-                const { data: { session } } = await supabase.auth.getSession();
                 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
                 const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
                 
-                if (!supabaseUrl || !supabaseKey) {
-                    console.error("[Gemini] Critical: Missing Supabase configuration", { 
-                        hasUrl: !!supabaseUrl, 
-                        hasKey: !!supabaseKey 
-                    });
-                    throw new Error("Configuration Supabase manquante (URL ou Key).");
-                }
-
-                const tokenToUse = session?.access_token || supabaseKey;
-                const isAnon = !session?.access_token;
+                // 1. Get Fresh Token
+                const { token: initialToken, isAnon } = await getFreshSessionToken();
                 
                 console.log(`[Gemini] Requesting model: ${model} (Attempt ${attempt + 1})`);
-                // console.log(`[Gemini] Auth: ${isAnon ? 'Anon Key' : 'User Token'} (${tokenToUse.substring(0, 10)}...)`);
                 
                 let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${tokenToUse}`,
+                        'Authorization': `Bearer ${initialToken}`,
                         'apikey': supabaseKey
                     },
                     body: JSON.stringify({ ...payload, action: 'generate' })
@@ -88,7 +108,7 @@ export const executeWithRotation = async (
 
                 // RETRY WITH ANON KEY ON 401 (If User Token failed)
                 if (response.status === 401 && !isAnon) {
-                    console.warn("[Gemini] User Token rejected (401). Retrying with Anon Key...");
+                    console.log("[Gemini] User Token rejected (401). seamlessly switching to Anon Key...");
                     response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                         method: 'POST',
                         headers: { 
@@ -106,7 +126,6 @@ export const executeWithRotation = async (
                     // Only logout if even the Anon Key failed (Critical Auth Failure)
                     if (response.status === 401) {
                         console.warn("[Gemini] Critical: Anon Key also rejected (401).");
-                        // Optional: Force logout here if strictly necessary, but better to just throw
                     }
 
                     throw new Error(`API Error ${response.status}: ${errText}`);
@@ -285,18 +304,17 @@ export async function* sendMessageStream(
               }
           };
 
-          const { data: { session } } = await supabase.auth.getSession();
           const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
           const supabaseKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
           
-          let tokenToUse = session?.access_token || supabaseKey;
-          let isAnon = !session?.access_token;
+          // 1. Get Fresh Token
+          const { token: initialToken, isAnon } = await getFreshSessionToken();
 
           let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
               method: 'POST',
               headers: { 
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${tokenToUse}`,
+                  'Authorization': `Bearer ${initialToken}`,
                   'apikey': supabaseKey
               },
               body: JSON.stringify({ ...payload, action: 'stream' })
@@ -304,7 +322,7 @@ export async function* sendMessageStream(
 
           // RETRY WITH ANON KEY ON 401
           if (response.status === 401 && !isAnon) {
-              console.warn(`[Stream] User Token rejected for ${model}. Retrying with Anon Key...`);
+              console.log(`[Stream] User Token rejected for ${model}. Seamlessly switching to Anon Key...`);
               response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
                   method: 'POST',
                   headers: { 

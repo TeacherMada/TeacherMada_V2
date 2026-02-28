@@ -176,6 +176,7 @@ const ChatInterface: React.FC<Props> = ({
           try { currentSource.stop(); } catch (_e) { /* ignore */ }
           setCurrentSource(null);
       }
+      window.speechSynthesis.cancel();
       setSpeakingMessageId(null);
       setIsLoadingAudio(false);
   };
@@ -199,7 +200,29 @@ const ChatInterface: React.FC<Props> = ({
       try {
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText, undefined, cost);
-          if (!pcmBuffer) throw new Error(t('chat.audio_error'));
+          
+          if (!pcmBuffer) {
+              // Fallback to Browser TTS
+              console.warn("Gemini TTS failed, falling back to browser speech");
+              const utterance = new SpeechSynthesisUtterance(cleanText);
+              // Try to find a suitable voice
+              const voices = window.speechSynthesis.getVoices();
+              const targetLang = user.preferences?.targetLanguage || 'en-US';
+              // Simple mapping or detection
+              const langCode = targetLang.toLowerCase().includes('fr') ? 'fr-FR' : 
+                               targetLang.toLowerCase().includes('es') ? 'es-ES' : 
+                               targetLang.toLowerCase().includes('de') ? 'de-DE' : 'en-US';
+              
+              utterance.lang = langCode;
+              const voice = voices.find(v => v.lang.startsWith(langCode));
+              if (voice) utterance.voice = voice;
+              
+              utterance.onend = () => { setSpeakingMessageId(null); };
+              utterance.onerror = () => { setSpeakingMessageId(null); notify(t('chat.audio_error'), "error"); };
+              
+              window.speechSynthesis.speak(utterance);
+              return;
+          }
           
           let ctx = audioContext;
           if (!ctx) {
