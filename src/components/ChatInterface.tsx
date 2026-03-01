@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
-import { sendMessageStream, generateSpeech, executeEdgeFunction } from '../services/geminiService';
+import { sendMessageStream, generateSpeech, generateText } from '../services/geminiService';
 import { storageService, SyncStatus } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
 import { getFlagUrl } from '../constants';
@@ -257,12 +257,7 @@ const ChatInterface: React.FC<Props> = ({
       
       try {
           setIsStreaming(true);
-          const response = await executeEdgeFunction('generate', {
-              modelType: 'text',
-              contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          });
-          
-          const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+          const text = await generateText(prompt);
           if (text) {
               setInput(text.trim());
           }

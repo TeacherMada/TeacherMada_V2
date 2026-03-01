@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Clock, Globe } from 'lucide-react';
 import { UserProfile } from '../types';
-import { Modality } from '@google/genai';
+import { Modality, GoogleGenAI } from '@google/genai';
 import { storageService } from '../services/storageService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
 
@@ -156,7 +156,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       // 4. Close GenAI Session
       if (activeSessionRef.current) {
           try { 
-             // activeSessionRef.current.close(); 
+             activeSessionRef.current.then((s: any) => s.close()).catch(() => {});
           } catch (_e) {}
           activeSessionRef.current = null;
       }
@@ -271,17 +271,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (!user) return;
       
       try {
-          // Determine WebSocket URL
-          const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-          if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL not configured");
-          
-          const wsUrl = supabaseUrl.replace(/^http/, 'ws') + '/functions/v1/gemini-api?action=live';
-
-          console.log("Connecting to Supabase Edge Function:", wsUrl);
-          
-          const ws = new WebSocket(wsUrl);
-          activeSessionRef.current = ws; // Store WS as session
-
           // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
           const sysPrompt = `
           IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
@@ -306,77 +295,72 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
           `;
 
-          // Setup handlers
-          ws.onopen = () => {
-              if (isMountedRef.current) {
-                  // Send configuration as first message
-                  const configMsg = {
-                      type: 'setup',
-                      model: LIVE_MODEL,
-                      config: {
-                          responseModalities: [Modality.AUDIO],
-                          systemInstruction: { parts: [{ text: sysPrompt }] },
-                          speechConfig: {
-                              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+          const apiKey = process.env.GEMINI_API_KEY;
+          if (!apiKey) {
+              throw new Error("Clé API Gemini non configurée dans l'environnement.");
+          }
+
+          const ai = new GoogleGenAI({ apiKey });
+
+          const sessionPromise = ai.live.connect({
+              model: LIVE_MODEL,
+              config: {
+                  responseModalities: [Modality.AUDIO],
+                  systemInstruction: { parts: [{ text: sysPrompt }] },
+                  speechConfig: {
+                      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+                  }
+              },
+              callbacks: {
+                  onopen: () => {
+                      if (isMountedRef.current) {
+                          isConnectedRef.current = true;
+                          setStatus('connected');
+                          setSubStatus("En Ligne");
+                      }
+                  },
+                  onmessage: async (msg) => {
+                      if (!isMountedRef.current) return;
+                      try {
+                          const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                          if (audioData) {
+                              setTeacherSpeaking(true);
+                              setSubStatus("TeacherMada parle...");
+                              await playAudioChunk(audioData, ctx);
                           }
+                          
+                          if (msg.serverContent?.turnComplete) {
+                              setTeacherSpeaking(false);
+                              setSubStatus("Je vous écoute...");
+                              if (nextStartTimeRef.current < ctx.currentTime) {
+                                  nextStartTimeRef.current = ctx.currentTime;
+                              }
+                          }
+                      } catch (e) {
+                          console.error("Error parsing WS message", e);
                       }
-                  };
-                  ws.send(JSON.stringify(configMsg));
-
-                  isConnectedRef.current = true;
-                  setStatus('connected');
-                  setSubStatus("En Ligne");
-              }
-          };
-
-          ws.onmessage = async (event) => {
-              if (!isMountedRef.current) return;
-              try {
-                  const msg = JSON.parse(event.data);
-                  
-                  // Handle "open" confirmation from proxy
-                  if (msg.type === 'open') return;
-
-                  const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                  if (audioData) {
-                      setTeacherSpeaking(true);
-                      setSubStatus("TeacherMada parle...");
-                      await playAudioChunk(audioData, ctx);
-                  }
-                  
-                  if (msg.serverContent?.turnComplete) {
-                      setTeacherSpeaking(false);
-                      setSubStatus("Je vous écoute...");
-                      if (nextStartTimeRef.current < ctx.currentTime) {
-                          nextStartTimeRef.current = ctx.currentTime;
+                  },
+                  onclose: (e) => {
+                      console.log("Session closed remote", e);
+                      cleanupAudio();
+                      if (isMountedRef.current) {
+                          setStatus('error');
+                          setSubStatus("Connexion fermée");
+                      }
+                  },
+                  onerror: (err) => {
+                      console.error("Session error", err);
+                      cleanupAudio();
+                      if (isMountedRef.current) {
+                          setStatus('error');
+                          setSubStatus("Erreur de connexion");
                       }
                   }
-              } catch (e) {
-                  console.error("Error parsing WS message", e);
               }
-          };
+          });
 
-          ws.onclose = (e) => {
-              console.log("Session closed remote", e);
-              cleanupAudio();
-              if (isMountedRef.current) {
-                  setStatus('error');
-                  const msg = getDisconnectMessage(e.code, e.reason, ctx.state);
-                  setSubStatus(msg);
-              }
-          };
-
-          ws.onerror = (err) => {
-              console.error("Session error", err);
-              cleanupAudio();
-              if (isMountedRef.current) {
-                  setStatus('error');
-                  const msg = `Erreur WebSocket: Inconnue | Audio: ${ctx.state}`;
-                  setSubStatus(msg);
-              }
-          };
-
-          await startMicrophone(ctx, ws);
+          activeSessionRef.current = sessionPromise; // Store promise as session
+          await startMicrophone(ctx, sessionPromise);
 
       } catch (e: any) {
           // CRITICAL: Do not retry if it's a microphone permission issue
@@ -482,17 +466,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
-                  // Send audio data to WebSocket
-                  if (session.readyState === WebSocket.OPEN) {
-                      session.send(JSON.stringify({
-                          realtimeInput: {
-                              mediaChunks: [{
-                                  mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-                                  data: base64Audio
-                              }]
-                          }
-                      }));
-                  }
+                  // Send audio data to GoogleGenAI
+                  session.then((s: any) => {
+                      s.sendRealtimeInput([{
+                          mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+                          data: base64Audio
+                      }]);
+                  }).catch(() => {});
               } catch (err) {}
           };
 

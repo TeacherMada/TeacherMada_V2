@@ -1,82 +1,25 @@
-import { Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
-import { supabase, supabaseUrl, supabaseAnonKey } from "../lib/supabase";
 
-// --- MOTEUR D'APPEL EDGE FUNCTION ---
-// The Edge Function handles model rotation, API keys, and retries.
-// The client just sends the payload.
+// --- CLIENT GEMINI DIRECT ---
+// Utilisation directe du SDK GoogleGenAI pour une stabilité et rapidité maximales.
+// Plus de proxy, plus d'erreurs 500, plus de problèmes de JWT.
 
-/**
- * Helper to get a fresh session token or fall back to Anon Key
- */
-const getFreshSessionToken = async (): Promise<{ token: string, isAnon: boolean }> => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-        console.error("[Gemini] Critical: Missing Supabase configuration");
-        throw new Error("Configuration Supabase manquante.");
+export const getAiClient = () => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        console.error("[Gemini] Critical: Missing GEMINI_API_KEY environment variable");
+        throw new Error("Clé API Gemini manquante.");
     }
-
-    try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error || !session?.access_token) {
-            return { token: supabaseAnonKey, isAnon: true };
-        }
-        return { token: session.access_token, isAnon: false };
-    } catch (e) {
-        console.warn("[Gemini] Session fetch error, defaulting to Anon Key:", e);
-        return { token: supabaseAnonKey, isAnon: true };
-    }
+    return new GoogleGenAI({ apiKey });
 };
 
-/**
- * Exécute une requête via Supabase Edge Function
- */
-export const executeEdgeFunction = async (
-    action: 'generate' | 'stream',
-    payload: any
-): Promise<any> => {
-    
-    // 1. Get Fresh Token
-    const { token: initialToken, isAnon } = await getFreshSessionToken();
-    
-    let response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${initialToken}`,
-            'apikey': supabaseAnonKey
-        },
-        body: JSON.stringify({ ...payload, action })
-    });
-
-    // RETRY WITH ANON KEY ON 401 (If User Token failed)
-    if (response.status === 401 && !isAnon) {
-        console.log("[Gemini] User Token rejected (401). seamlessly switching to Anon Key...");
-        response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseAnonKey}`,
-                'apikey': supabaseAnonKey
-            },
-            body: JSON.stringify({ ...payload, action })
-        });
-    }
-
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`API Error ${response.status}: ${errText}`);
-    }
-
-    if (action === 'stream') {
-        return response; // Return the raw response for streaming
-    }
-
-    return await response.json();
-};
+// Modèles par défaut
+export const TEXT_MODEL = 'gemini-3-flash-preview';
+export const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts';
 
 // --- SERVICES EXPORTÉS ---
 
@@ -92,28 +35,29 @@ export const generateSupportResponse = async (
         return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain.";
     }
 
-    const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
-    
-    const contents = history.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.text }]
-    }));
-    contents.push({ role: 'user', parts: [{ text: userQuery }] });
-
     try {
-        const response = await executeEdgeFunction('generate', {
-            modelType: 'support', // Tell Edge Function to use support models
-            contents,
+        const ai = getAiClient();
+        const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
+        
+        const chat = ai.chats.create({
+            model: TEXT_MODEL,
             config: {
-                systemInstruction: { parts: [{ text: systemInstruction }] },
+                systemInstruction: systemInstruction,
                 maxOutputTokens: 2000, 
                 temperature: 0.5
             }
         });
+
+        // Rejouer l'historique si nécessaire (simplifié pour la stabilité)
+        // Pour plus de stabilité, on envoie juste le dernier message avec le contexte
+        const prompt = `Historique de conversation:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion actuelle: ${userQuery}`;
+
+        const response = await chat.sendMessage({ message: prompt });
         
         storageService.incrementSupportUsage();
-        return response.candidates?.[0]?.content?.parts?.[0]?.text || "Je n'ai pas de réponse pour le moment.";
+        return response.text || "Je n'ai pas de réponse pour le moment.";
     } catch (e) {
+        console.error("Support error:", e);
         return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer.";
     }
 };
@@ -131,34 +75,31 @@ export async function* sendMessageStream(
     return;
   }
 
-  const contents = history
-    .filter(msg => msg.text && msg.text.trim().length > 0)
-    .map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
-    }));
-  
-  contents.push({ role: 'user', parts: [{ text: message }] });
-
   try {
-      const response = await executeEdgeFunction('stream', {
-          modelType: 'text', // Tell Edge Function to use text models
-          contents,
+      const ai = getAiClient();
+      
+      const chat = ai.chats.create({
+          model: TEXT_MODEL,
           config: {
-            systemInstruction: { parts: [{ text: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) }] },
-            temperature: 0.7,
-            maxOutputTokens: 8192,
+              systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
+              temperature: 0.7,
+              maxOutputTokens: 8192,
           }
       });
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      // Format history for the prompt to ensure stability
+      const contextPrompt = history
+        .filter(msg => msg.text && msg.text.trim().length > 0)
+        .map(msg => `${msg.role === 'user' ? 'Élève' : 'Professeur'}: ${msg.text}`)
+        .join('\n\n');
 
-      while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          if (chunk) yield chunk;
+      const finalMessage = contextPrompt ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}` : message;
+
+      const responseStream = await chat.sendMessageStream({ message: finalMessage });
+
+      for await (const chunk of responseStream) {
+          const c = chunk as any;
+          if (c.text) yield c.text;
       }
       
       await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
@@ -175,8 +116,9 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
     if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
     try {
-        const response = await executeEdgeFunction('generate', {
-            modelType: 'audio', // Tell Edge Function to use audio models
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: AUDIO_MODEL,
             contents: [{ parts: [{ text: text }] }],
             config: {
                 responseModalities: [Modality.AUDIO],
@@ -202,7 +144,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
         return bytes.buffer as ArrayBuffer;
 
     } catch (e) {
-        console.warn("TTS Rotation Failed (Switching to Browser TTS):", e);
+        console.warn("TTS Failed (Switching to Browser TTS):", e);
         return null;
     }
 };
@@ -216,9 +158,10 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> 
     const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words. Return JSON array [{word, translation, example}].\n${context}`;
 
     try {
-        const response = await executeEdgeFunction('generate', {
-            modelType: 'text',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: TEXT_MODEL,
+            contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -235,8 +178,7 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> 
             }
         });
 
-        // Vocabulary extraction is free (included in lesson cost)
-        const rawData = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "[]");
+        const rawData = JSON.parse(response.text || "[]");
         
         return rawData.map((item: any) => ({
             id: crypto.randomUUID(),
@@ -259,9 +201,10 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     const prompt = `Génère 3 exercices (QCM/Vrai-Faux) pour niveau ${user.preferences?.level} (${user.preferences?.targetLanguage}). Format JSON Array.`;
 
     try {
-        const response = await executeEdgeFunction('generate', {
-            modelType: 'text',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: TEXT_MODEL,
+            contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -270,7 +213,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
                         type: Type.OBJECT,
                         properties: {
                             id: { type: Type.STRING },
-                            type: { type: Type.STRING, enum: ["multiple_choice", "true_false", "fill_blank"] },
+                            type: { type: Type.STRING },
                             question: { type: Type.STRING },
                             options: { type: Type.ARRAY, items: { type: Type.STRING } },
                             correctAnswer: { type: Type.STRING },
@@ -283,7 +226,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
         });
         
         await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
-        return JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "[]");
+        return JSON.parse(response.text || "[]");
     } catch (e) {
         return [];
     }
@@ -303,18 +246,21 @@ export const generateRoleplayResponse = async (
     }
 
     const sysInstruct = `Partenaire de jeu de rôle (${user.preferences?.targetLanguage}, ${user.preferences?.level}). Scénario: ${scenarioPrompt}.`;
-    const contents = history
-        .filter(msg => msg.text && msg.text.trim().length > 0)
-        .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
     
-    if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
+    const contextPrompt = history
+        .filter(msg => msg.text && msg.text.trim().length > 0)
+        .map(m => `${m.role}: ${m.text}`)
+        .join('\n');
+        
+    const finalPrompt = isClosing ? `${contextPrompt}\n\nÉvaluation finale` : (contextPrompt || "Start");
 
     try {
-        const response = await executeEdgeFunction('generate', {
-            modelType: 'text',
-            contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: TEXT_MODEL,
+            contents: finalPrompt,
             config: {
-                systemInstruction: { parts: [{ text: sysInstruct }] },
+                systemInstruction: sysInstruct,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -331,12 +277,23 @@ export const generateRoleplayResponse = async (
         });
 
         await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
-        return JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+        return JSON.parse(response.text || "{}");
     } catch (e) {
-        return { aiReply: "Problème technique (Rotation épuisée)." };
+        return { aiReply: "Problème technique." };
     }
 };
 
-export const generateNextLessonPrompt = (user: UserProfile): string => {
-  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la prochaine leçon.`;
+// 7. GENERIC TEXT GENERATION (e.g., for translation)
+export const generateText = async (prompt: string): Promise<string> => {
+    try {
+        const ai = getAiClient();
+        const response = await ai.models.generateContent({
+            model: TEXT_MODEL,
+            contents: prompt
+        });
+        return response.text || "";
+    } catch (e) {
+        console.error("generateText error:", e);
+        return "";
+    }
 };

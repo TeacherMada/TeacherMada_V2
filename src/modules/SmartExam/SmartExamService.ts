@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { UserProfile } from "../../types";
 import { SmartExam, ExamResultDetailed, ExamType } from "./types";
 import { storageService } from "../../services/storageService";
-import { executeEdgeFunction } from "../../services/geminiService";
+import { getAiClient, TEXT_MODEL } from "../../services/geminiService";
 import { creditService, CREDIT_COSTS } from "../../services/creditService";
 
 export const SmartExamService = {
@@ -65,9 +65,10 @@ export const SmartExamService = {
             }
             `;
 
-            const response = await executeEdgeFunction('generate', {
-                modelType: 'text',
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            const ai = getAiClient();
+            const response = await ai.models.generateContent({
+                model: TEXT_MODEL,
+                contents: prompt,
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -79,7 +80,7 @@ export const SmartExamService = {
                                     type: Type.OBJECT,
                                     properties: {
                                         id: { type: Type.STRING },
-                                        type: { type: Type.STRING, enum: ["qcm", "writing", "speaking", "listening"] },
+                                        type: { type: Type.STRING },
                                         question: { type: Type.STRING },
                                         context: { type: Type.STRING },
                                         options: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -93,7 +94,7 @@ export const SmartExamService = {
                 }
             });
 
-            const data = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+            const data = JSON.parse(response.text || "{}");
             
             if (!data.sections || !Array.isArray(data.sections) || data.sections.length === 0) {
                 throw new Error("Format d'examen invalide (Sections manquantes)");
@@ -148,9 +149,10 @@ export const SmartExamService = {
         `;
 
         try {
-            const response = await executeEdgeFunction('generate', {
-                modelType: 'text',
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            const ai = getAiClient();
+            const response = await ai.models.generateContent({
+                model: TEXT_MODEL,
+                contents: prompt,
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -174,7 +176,7 @@ export const SmartExamService = {
                 }
             });
 
-            const evalData = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+            const evalData = JSON.parse(response.text || "{}");
             const passed = (evalData.globalScore || 0) >= 70; // Seuil strict
 
             let certId = undefined;
