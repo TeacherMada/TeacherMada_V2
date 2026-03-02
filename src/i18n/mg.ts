@@ -470,7 +470,7 @@ export const mg = {
     start_exam: "Fanadinana",
     start_voice: "Antso Mivantana",
     change_course: "Hanova taranja",
-    my_profile: "Ny mombamomba ahy",
+    my_profile: "Momba ahy",
     achievements: "Zava-bita",
     weekly_goal: "Tanjona isan-kerinandro",
     admin_panel: "Hiditra amin'ny fitantanana",

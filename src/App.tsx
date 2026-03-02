@@ -65,6 +65,7 @@ const AppContent: React.FC = () => {
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice' | 'exam'>('chat');
   const [currentExercises, setCurrentExercises] = useState<ExerciseItem[]>([]);
   const [isGeneratingExercise, setIsGeneratingExercise] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
@@ -81,6 +82,18 @@ const AppContent: React.FC = () => {
 
     const init = async () => {
         console.log("App initializing...");
+        
+        // 1. Optimistic load from local storage for instant UI
+        const localUser = storageService.getLocalUser();
+        if (localUser) {
+            setUser(localUser);
+            if (localUser.preferences && localUser.preferences.targetLanguage) {
+                const localSession = await storageService.getOrCreateSession(localUser.id, localUser.preferences);
+                setCurrentSession(localSession);
+            }
+        }
+
+        // 2. Fetch from remote to ensure data is fresh (credits, etc.)
         const curr = await storageService.getCurrentUser();
         if (curr) {
             setUser(curr);
@@ -311,6 +324,26 @@ const AppContent: React.FC = () => {
       return `Chat Principal - Apprentissage du ${user.preferences?.targetLanguage || 'Language'}`;
   };
 
+  const handleResumeCourse = async () => {
+    if (!user || !user.preferences) return;
+    setIsResuming(true);
+    try {
+        console.log("Resuming course for user:", user.id);
+        const session = await storageService.getOrCreateSession(user.id, user.preferences);
+        if (session) {
+            setCurrentSession(session);
+            toast.success("Cours repris avec succès !");
+        } else {
+            toast.error("Impossible de récupérer la session.");
+        }
+    } catch (error) {
+        console.error("Error resuming course:", error);
+        toast.error("Erreur lors de la reprise du cours.");
+    } finally {
+        setIsResuming(false);
+    }
+  };
+
   if (verifyCertId) {
       return (
           <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
@@ -486,10 +519,18 @@ const AppContent: React.FC = () => {
            
            <div className="space-y-4 w-full max-w-sm">
              <button 
-                onClick={async () => setCurrentSession(await storageService.getOrCreateSession(user.id, user.preferences!))}
-                className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-[1.02] transition-all"
+                onClick={handleResumeCourse}
+                disabled={isResuming}
+                className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-[1.02] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
              >
-               Reprendre mon cours
+               {isResuming ? (
+                   <>
+                       <Loader2 className="w-5 h-5 animate-spin" />
+                       Reprise en cours...
+                   </>
+               ) : (
+                   "Reprendre mon cours"
+               )}
              </button>
              <button 
                 onClick={handleChangeCourse}

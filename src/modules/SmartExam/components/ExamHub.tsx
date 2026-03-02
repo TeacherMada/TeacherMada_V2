@@ -4,7 +4,7 @@ import { UserProfile } from '../../../types';
 import { SmartExam, ExamResultDetailed, ExamType } from '../types';
 import { SmartExamService } from '../SmartExamService';
 import { creditService, CREDIT_COSTS } from '../../../services/creditService';
-import { Loader2, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Clock, Award, Lock } from 'lucide-react';
+import { Loader2, ShieldCheck, FileText, AlertTriangle, CheckCircle, XCircle, Clock, Award, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 import ExamRunner from './ExamRunner';
 import ExamResult from './ExamResult';
 import { useTranslation } from '../../../contexts/LanguageContext';
@@ -25,6 +25,7 @@ const ExamHub: React.FC<Props> = ({ user, onClose, onUpdateUser, onShowPayment }
     const [currentExam, setCurrentExam] = useState<SmartExam | null>(null);
     const [result, setResult] = useState<ExamResultDetailed | null>(null);
     const [pendingExamType, setPendingExamType] = useState<ExamType | null>(null);
+    const [expandedRule, setExpandedRule] = useState<string | null>(null);
 
     if (!user) return null;
 
@@ -199,23 +200,53 @@ const ExamHub: React.FC<Props> = ({ user, onClose, onUpdateUser, onShowPayment }
                             {t('exam.rules_intro') || "Vous êtes sur le point de commencer un examen officiel TeacherMada. Veuillez lire attentivement les règles suivantes."}
                         </p>
                         
-                        <div className="space-y-4 text-sm text-slate-700 dark:text-slate-300 mb-8 bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
-                            <div className="flex gap-3">
-                                <Clock className="w-5 h-5 text-indigo-500 shrink-0" />
-                                <div><strong>{t('exam.rule_duration_title') || "Durée stricte :"}</strong> {t('exam.rule_duration_desc') || "L'examen dure exactement 15 minutes. Les réponses sont soumises automatiquement à la fin du temps imparti."}</div>
-                            </div>
-                            <div className="flex gap-3">
-                                <ShieldCheck className="w-5 h-5 text-indigo-500 shrink-0" />
-                                <div><strong>{t('exam.rule_anti_cheat_title') || "Anti-triche actif :"}</strong> {t('exam.rule_anti_cheat_desc') || "Le mode plein écran est obligatoire. Quitter l'onglet, fermer le plein écran ou utiliser le clic droit génère un avertissement."}</div>
-                            </div>
-                            <div className="flex gap-3">
-                                <XCircle className="w-5 h-5 text-red-500 shrink-0" />
-                                <div><strong>{t('exam.rule_tolerance_title') || "Tolérance zéro :"}</strong> {t('exam.rule_tolerance_desc') || "Au bout de 3 avertissements, l'examen est annulé immédiatement et définitivement."}</div>
-                            </div>
-                            <div className="flex gap-3">
-                                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-                                <div><strong>{t('common.credits') || "Crédits :"}</strong> {pendingExamType === 'certification' ? CREDIT_COSTS.EXAM : CREDIT_COSTS.DIAGNOSTIC} {t('exam.rule_credits_desc') || "crédits seront déduits dès le lancement. Aucun remboursement en cas d'abandon ou d'annulation."}</div>
-                            </div>
+                        <div className="space-y-3 mb-8">
+                            {[
+                                {
+                                    id: 'duration',
+                                    icon: <Clock className="w-5 h-5 text-indigo-500 shrink-0" />,
+                                    title: t('exam.rule_duration_title') || "Durée stricte",
+                                    desc: t('exam.rule_duration_desc') || "L'examen dure exactement 15 minutes. Les réponses sont soumises automatiquement à la fin du temps imparti."
+                                },
+                                {
+                                    id: 'anti_cheat',
+                                    icon: <ShieldCheck className="w-5 h-5 text-indigo-500 shrink-0" />,
+                                    title: t('exam.rule_anti_cheat_title') || "Anti-triche actif",
+                                    desc: t('exam.rule_anti_cheat_desc') || "Le mode plein écran est obligatoire. Quitter l'onglet, fermer le plein écran ou utiliser le clic droit génère un avertissement."
+                                },
+                                {
+                                    id: 'tolerance',
+                                    icon: <XCircle className="w-5 h-5 text-red-500 shrink-0" />,
+                                    title: t('exam.rule_tolerance_title') || "Tolérance zéro",
+                                    desc: t('exam.rule_tolerance_desc') || "Au bout de 3 avertissements, l'examen est annulé immédiatement et définitivement."
+                                },
+                                {
+                                    id: 'credits',
+                                    icon: <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />,
+                                    title: `${t('common.credits') || "Crédits"} (${pendingExamType === 'certification' ? CREDIT_COSTS.EXAM : CREDIT_COSTS.DIAGNOSTIC})`,
+                                    desc: `${pendingExamType === 'certification' ? CREDIT_COSTS.EXAM : CREDIT_COSTS.DIAGNOSTIC} ${t('exam.rule_credits_desc') || "crédits seront déduits dès le lancement. Aucun remboursement en cas d'abandon ou d'annulation."}`
+                                }
+                            ].map((rule) => (
+                                <div key={rule.id} className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 overflow-hidden transition-all">
+                                    <button 
+                                        onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
+                                        className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            {rule.icon}
+                                            <span className="font-bold text-slate-900 dark:text-white text-sm">{rule.title}</span>
+                                        </div>
+                                        {expandedRule === rule.id ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                    </button>
+                                    {expandedRule === rule.id && (
+                                        <div className="px-4 pb-4 pt-0 text-sm text-slate-600 dark:text-slate-400 animate-fade-in">
+                                            <div className="pl-8 border-l-2 border-slate-200 dark:border-slate-700 ml-2.5 py-1">
+                                                {rule.desc}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
 
                         <div className="flex gap-3 justify-end">

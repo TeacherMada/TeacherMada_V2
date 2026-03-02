@@ -127,7 +127,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   timestamp: Date.now()
               }]);
               
-              const u = await storageService.getUserById(user.id);
+              const u = storageService.getLocalUser();
               if (u) onUpdateUser(u);
 
           } catch (e) {
@@ -205,7 +205,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               return;
           }
 
-          const updatedUser = await storageService.getUserById(user.id);
+          const updatedUser = storageService.getLocalUser();
           if (updatedUser) onUpdateUser(updatedUser);
 
           if (result.correction) {
@@ -233,7 +233,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           const sessionUser = getSessionUser();
           const result = await generateRoleplayResponse(messages, scenario.prompt, sessionUser, true);
           
-          const updatedUser = await storageService.getUserById(user.id);
+          const updatedUser = storageService.getLocalUser();
           if (updatedUser) onUpdateUser(updatedUser);
 
           setFinalScore({
@@ -241,7 +241,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               feedback: result.feedback || "Bravo pour ta participation !"
           });
           
-          const freshUser = await storageService.getUserById(user.id);
+          const freshUser = storageService.getLocalUser();
           const userWithStats = { ...(freshUser || user) };
           
           await storageService.saveUserProfile(userWithStats);

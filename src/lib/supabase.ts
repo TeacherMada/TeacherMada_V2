@@ -21,7 +21,12 @@ export const supabase = createClient(
         auth: {
             persistSession: true,
             autoRefreshToken: true,
-            detectSessionInUrl: true
+            detectSessionInUrl: true,
+            storageKey: 'tm_supabase_auth',
+            // Disable multi-tab sync to prevent LockManager infinite hanging
+            // This is crucial for stability if the browser's LockManager gets stuck
+            // @ts-ignore
+            multiTab: false
         }
     }
 );

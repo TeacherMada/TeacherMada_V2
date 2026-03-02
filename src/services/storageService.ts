@@ -192,30 +192,11 @@ export const storageService = {
             }
         }
         
-        // 1. Auth Supabase with Retry for LockManager
-        let authData = null;
-        let authError = null;
-        let attempts = 0;
-
-        while (attempts < 3) {
-            try {
-                const result = await supabase.auth.signInWithPassword({
-                    email: email, 
-                    password: pass
-                });
-                authData = result.data;
-                authError = result.error;
-                break;
-            } catch (e: any) {
-                if (e.message && e.message.includes('LockManager')) {
-                    console.warn(`LockManager timeout, retrying login (attempt ${attempts + 1})...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempts + 1)));
-                    attempts++;
-                } else {
-                    throw e;
-                }
-            }
-        }
+        // 1. Auth Supabase
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: email, 
+            password: pass
+        });
 
         if (authError) return { success: false, error: "Identifiants incorrects." };
         if (!authData || !authData.user) return { success: false, error: "Erreur de connexion." };
@@ -228,11 +209,9 @@ export const storageService = {
             let user = await storageService.getUserById(authData.user.id);
             
             // Retry logic si la DB est lente à répondre ou si le trigger est en cours
-            let attempts = 0;
-            while (!user && attempts < 3) {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Augmenté à 1s
+            if (!user) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // Réduit à 500ms
                 user = await storageService.getUserById(authData.user.id);
-                attempts++;
             }
             
             // Si toujours pas de profil, c'est une erreur critique de données ou de droits
@@ -354,27 +333,8 @@ export const storageService = {
       if (!isSupabaseConfigured()) return localUser;
 
       try {
-          // 1. Check Auth Session with Retry for LockManager timeouts
-          let session = null;
-          let error = null;
-          let attempts = 0;
-          
-          while (attempts < 3) {
-              try {
-                  const result = await supabase.auth.getSession();
-                  session = result.data.session;
-                  error = result.error;
-                  break; // Success, exit retry loop
-              } catch (e: any) {
-                  if (e.message && e.message.includes('LockManager')) {
-                      console.warn(`LockManager timeout, retrying getSession (attempt ${attempts + 1})...`);
-                      await new Promise(resolve => setTimeout(resolve, 1000 * (attempts + 1)));
-                      attempts++;
-                  } else {
-                      throw e; // Other errors, throw immediately
-                  }
-              }
-          }
+          // 1. Check Auth Session
+          const { data: { session }, error } = await supabase.auth.getSession();
           
           if (error) {
               // Handle Invalid Refresh Token specifically
@@ -489,18 +449,13 @@ export const storageService = {
   // --- CREDITS (SECURE) ---
 
   canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
-      // Always fetch fresh credits from DB to prevent PWA cache cheating
-      const dbUser = await storageService.getUserById(userId);
+      const localUser = storageService.getLocalUser();
+      if (!localUser || localUser.id !== userId) return false;
       
-      if (!dbUser) return false;
+      if (localUser.role === 'admin') return true;
+      if (localUser.isSuspended) return false;
       
-      // Sync local with fresh DB data
-      storageService.saveLocalUser(dbUser);
-      
-      if (dbUser.role === 'admin') return true;
-      if (dbUser.isSuspended) return false;
-      
-      return dbUser.credits >= minCredits;
+      return localUser.credits >= minCredits;
   },
 
   consumeCredit: async (userId: string): Promise<boolean> => {
@@ -508,38 +463,32 @@ export const storageService = {
   },
 
   deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-      if (!isSupabaseConfigured()) {
-          // Local fallback for offline mode
-          const local = storageService.getLocalUser();
-          if (local && local.credits >= amount) {
-              storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-              return true;
-          }
-          return false;
-      }
+      const local = storageService.getLocalUser();
+      if (!local || local.credits < amount) return false;
+
+      // Optimistic update
+      storageService.saveLocalUser({ ...local, credits: local.credits - amount });
+
+      if (!isSupabaseConfigured()) return true;
+
       try {
-          // Use Supabase RPC for atomic deduction
-          // V4 RPC uses auth.uid() internally, so we just pass the amount
-          const { data, error } = await supabase.rpc('consume_credits', {
+          // Background sync
+          supabase.rpc('consume_credits', {
+              p_user_id: userId,
               p_amount: amount
+          }).then(({ data, error }) => {
+              if (error) {
+                  console.warn("RPC consume_credits failed:", error);
+                  // Rollback will happen naturally via real-time subscription if needed
+              } else if (typeof data === 'number') {
+                  const currentLocal = storageService.getLocalUser();
+                  if (currentLocal) storageService.saveLocalUser({ ...currentLocal, credits: data });
+              }
           });
-
-          if (error) {
-              console.warn("RPC consume_credits failed:", error);
-              return false;
-          }
-
-          if (typeof data === 'number') {
-              const local = storageService.getLocalUser();
-              if (local) storageService.saveLocalUser({ ...local, credits: data });
-              return true;
-          } else {
-              // Insufficient funds
-              return false;
-          }
+          return true;
       } catch (e) {
           console.warn("Error deducting credits:", e);
-          return false;
+          return true; // Keep optimistic update, real-time will correct if needed
       }
   },
 

@@ -125,6 +125,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const isMountedRef = useRef(true);
   const activeSessionRef = useRef<any>(null);
   const isConnectedRef = useRef(false);
+  const hasStartedRef = useRef(false);
 
   const cleanupAudio = useCallback(() => {
       // 1. Stop Media Stream Tracks
@@ -201,7 +202,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (!user) return;
       const success = await creditService.deduct(user.id, COST_PER_MINUTE);
       if (success) {
-          const updatedUser = await storageService.getUserById(user.id);
+          const updatedUser = storageService.getLocalUser();
           if (updatedUser) onUpdateUser(updatedUser);
           notify(`- ${COST_PER_MINUTE} Crédits`, "info");
       } else {
@@ -211,29 +212,23 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const startSession = async () => {
-      if (!user) return;
+      if (!user || hasStartedRef.current) return;
+      hasStartedRef.current = true;
       
       // Ensure clean slate
       cleanupAudio();
 
       // 1. Check & Deduct for First Minute immediately
-      const hasBalance = await creditService.checkBalance(user.id, COST_PER_MINUTE);
-      if (!hasBalance) {
+      const deducted = await creditService.deduct(user.id, COST_PER_MINUTE);
+      if (!deducted) {
           notify(`Il faut ${COST_PER_MINUTE} crédits minimum pour démarrer.`, "error");
           onShowPayment();
           onClose();
           return;
       }
-
-      const deducted = await creditService.deduct(user.id, COST_PER_MINUTE);
-      if (!deducted) {
-          notify("Erreur de transaction crédits.", "error");
-          onClose();
-          return;
-      }
       
       // Update local user state immediately
-      const updatedUser = await storageService.getUserById(user.id);
+      const updatedUser = storageService.getLocalUser();
       if (updatedUser) onUpdateUser(updatedUser);
       notify(`- ${COST_PER_MINUTE} Crédits (1ère minute)`, "info");
 
@@ -317,6 +312,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           isConnectedRef.current = true;
                           setStatus('connected');
                           setSubStatus("En Ligne");
+                          
+                          // Send initial greeting trigger
+                          sessionPromise.then((s: any) => {
+                              s.sendRealtimeInput({
+                                  media: {
+                                      mimeType: "audio/pcm;rate=16000",
+                                      data: "" // Empty audio to trigger start if needed, or rely on system prompt
+                                  }
+                              });
+                              // Note: sending text directly via sendRealtimeInput might not be supported as 'text' property.
+                              // The system prompt should handle the greeting.
+                          }).catch(() => {});
                       }
                   },
                   onmessage: async (msg) => {
@@ -468,12 +475,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               try {
                   // Send audio data to GoogleGenAI
                   session.then((s: any) => {
-                      s.sendRealtimeInput([{
-                          mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-                          data: base64Audio
-                      }]);
+                      s.sendRealtimeInput({
+                          media: {
+                              mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+                              data: base64Audio
+                          }
+                      });
                   }).catch(() => {});
-              } catch (err) {}
+              } catch (_err) {}
           };
 
           source.connect(workletNode);

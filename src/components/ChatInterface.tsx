@@ -512,12 +512,16 @@ const ChatInterface: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-end gap-3 flex-1">
-                <div className="flex items-center justify-center relative group" title={`Statut de synchronisation: ${syncStatus}`}>
+                <button 
+                    onClick={() => window.location.reload()}
+                    className="flex items-center justify-center relative group hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-full transition-colors" 
+                    title={t('common.refresh_app') || "Actualiser l'application"}
+                >
                     {syncStatus === 'synced' && <Cloud className="w-4 h-4 text-emerald-500" />}
                     {syncStatus === 'syncing' && <CloudLightning className="w-4 h-4 text-amber-500 animate-pulse" />}
                     {syncStatus === 'offline' && <CloudOff className="w-4 h-4 text-slate-400" />}
                     {syncStatus === 'error' && <CloudOff className="w-4 h-4 text-red-500" />}
-                </div>
+                </button>
                 <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full transition-colors">
                     {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 </button>
