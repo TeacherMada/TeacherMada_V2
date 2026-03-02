@@ -326,19 +326,33 @@ const AppContent: React.FC = () => {
 
   const handleResumeCourse = async () => {
     if (!user || !user.preferences) return;
+    if (isResuming) return;
+    
     setIsResuming(true);
+    
+    // Timeout de 10 secondes pour éviter le blocage infini
+    const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 10000)
+    );
+
     try {
         console.log("Resuming course for user:", user.id);
-        const session = await storageService.getOrCreateSession(user.id, user.preferences);
-        if (session) {
+        
+        // Course contre la montre : chargement vs timeout
+        const session = await Promise.race([
+            storageService.getOrCreateSession(user.id, user.preferences),
+            timeoutPromise
+        ]) as any; // Type assertion pour éviter les soucis de typage avec le timeout
+
+        if (session && session.id) {
             setCurrentSession(session);
             toast.success("Cours repris avec succès !");
         } else {
-            toast.error("Impossible de récupérer la session.");
+            throw new Error("Session invalide");
         }
     } catch (error) {
         console.error("Error resuming course:", error);
-        toast.error("Erreur lors de la reprise du cours.");
+        toast.error("Le chargement est trop long. Veuillez vérifier votre connexion et réessayer.");
     } finally {
         setIsResuming(false);
     }

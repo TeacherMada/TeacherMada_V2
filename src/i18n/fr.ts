@@ -75,6 +75,18 @@ export const fr = {
     important_note: "Note importante :",
     refuse: "Refuser",
   },
+  guide: {
+      title: "Guide / Torolalana",
+      start_lesson: "Démarrer la leçon : Cliquez sur 'Commencer' ou tapez 'Commencer'.",
+      exercise: "Exercice : Cliquez sur le menu en haut à gauche > Exercices.",
+      dialogue: "Dialogue : Pratiquez une conversation réelle via le menu.",
+      voice_call: "Appel Vocal : Cliquez sur l'icône téléphone pour parler.",
+      exam: "Examen : Testez vos connaissances via le menu > Examen.",
+      certificate: "Certificat : Obtenez un certificat après l'examen.",
+      pronunciation: "Prononciation : Cliquez sur l'icône haut-parleur d'un message.",
+      credits: "Crédits : Vos points pour utiliser les fonctions premium.",
+      change_course: "Changer cours : Menu > Changer de cours.",
+  },
   landing: {
     hero_badge: "Pédagogie 2.0",
     hero_title_prefix: "APPRENEZ",

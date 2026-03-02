@@ -75,6 +75,18 @@ export const mg = {
     important_note: "Fanamarihana lehibe :",
     refuse: "Mandà",
   },
+  guide: {
+      title: "Torolalana / Guide",
+      start_lesson: "Hanomboka lesona : Tsindrio ny 'Hanomboka' na soraty 'Hanomboka'.",
+      exercise: "Fanazaran-tena : Tsindrio ny menu ambony havia > Fanazaran-tena.",
+      dialogue: "Resaka : Miresaha mivantana amin'ny alalan'ny menu.",
+      voice_call: "Antso Feo : Tsindrio ny sary finday raha te hiresaka.",
+      exam: "Fanadinana : Zahao ny fahaizanao amin'ny menu > Fanadinana.",
+      certificate: "Mari-pahaizana : Mahazoa mari-pahaizana rehefa afaka fanadinana.",
+      pronunciation: "Fanononana : Tsindrio ny sary fanamafisam-peo amin'ny hafatra.",
+      credits: "Isa (Crédits) : Ny isa anananao hampiasana ny fitaovana premium.",
+      change_course: "Hanova taranja : Menu > Hanova taranja.",
+  },
   landing: {
     hero_badge: "Fampianarana 2.0",
     hero_title_prefix: "MIANARA",

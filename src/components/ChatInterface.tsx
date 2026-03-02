@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning, Award } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech, generateText } from '../services/geminiService';
 import { storageService, SyncStatus } from '../services/storageService';
@@ -36,70 +36,6 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
     return buffer;
 }
 
-interface ChatInputProps {
-    input: string;
-    setInput: (val: string) => void;
-    handleSend: () => void;
-    handleTranslateInput: () => void;
-    handleVoiceCallClick: () => void;
-    isLowCredits: boolean;
-    t: (key: string, options?: any) => string;
-}
-
-const ChatInput = React.memo(({ 
-    input, 
-    setInput, 
-    handleSend, 
-    handleTranslateInput, 
-    handleVoiceCallClick, 
-    isLowCredits, 
-    t 
-}: ChatInputProps) => {
-    return (
-        <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
-            <button onClick={handleVoiceCallClick} className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] animate-pulse hover:scale-110 transition-transform active:scale-95 border-2 border-white/20" title="Démarrer Appel Vocal">
-                <Phone className="w-5 h-5 fill-current" />
-            </button>
-
-            <textarea
-                value={input}
-                onChange={(e) => {
-                    setInput(e.target.value);
-                    e.target.style.height = '40px';
-                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-                }}
-                onKeyDown={(e) => { 
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { 
-                        e.preventDefault(); 
-                        handleSend(); 
-                    }
-                }}
-                placeholder={isLowCredits ? t('chat.low_credits_warning') : t('chat.placeholder')}
-                className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                rows={1}
-                style={{ minHeight: '40px', height: '40px' }}
-                disabled={isLowCredits}
-            />
-            
-            <button 
-                onClick={handleTranslateInput}
-                className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-colors text-slate-400 hover:text-indigo-500 hover:bg-indigo-50" 
-                title={t('chat.translate_help')}
-                disabled={!input.trim() || isLowCredits}
-            >
-                <Languages className="w-5 h-5" />
-            </button>
-
-            <button 
-                onClick={handleSend}
-                disabled={!input.trim() || isLowCredits}
-                className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${input.trim() && !isLowCredits ? 'bg-indigo-600 text-white shadow-lg hover:scale-110 active:scale-95' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'}`}
-            >
-                <Send className="w-4 h-4 ml-0.5" />
-            </button>
-        </div>
-    );
-});
 
 const ChatInterface: React.FC<Props> = ({ 
   user, session, onShowProfile, onExit, onUpdateUser, 
@@ -136,6 +72,27 @@ const ChatInterface: React.FC<Props> = ({
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const [openGuideItem, setOpenGuideItem] = useState<string | null>('start_lesson');
+
+  const handleRefresh = async () => {
+      setIsRefreshing(true);
+      try {
+          if (user && user.preferences) {
+               const latestSession = await storageService.getOrCreateSession(user.id, user.preferences);
+               setMessages(latestSession.messages);
+               const updatedUser = await storageService.getUserById(user.id);
+               if (updatedUser) onUpdateUser(updatedUser);
+          }
+          setRefreshSuccess(true);
+          setTimeout(() => setRefreshSuccess(false), 2000);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsRefreshing(false);
+      }
+  };
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
 
@@ -513,14 +470,23 @@ const ChatInterface: React.FC<Props> = ({
 
             <div className="flex items-center justify-end gap-3 flex-1">
                 <button 
-                    onClick={() => window.location.reload()}
-                    className="flex items-center justify-center relative group hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-full transition-colors" 
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    className="flex items-center justify-center relative group hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-full transition-colors disabled:opacity-50" 
                     title={t('common.refresh_app') || "Actualiser l'application"}
                 >
-                    {syncStatus === 'synced' && <Cloud className="w-4 h-4 text-emerald-500" />}
-                    {syncStatus === 'syncing' && <CloudLightning className="w-4 h-4 text-amber-500 animate-pulse" />}
-                    {syncStatus === 'offline' && <CloudOff className="w-4 h-4 text-slate-400" />}
-                    {syncStatus === 'error' && <CloudOff className="w-4 h-4 text-red-500" />}
+                    {isRefreshing ? (
+                        <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                    ) : refreshSuccess ? (
+                        <Check className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                        <>
+                            {syncStatus === 'synced' && <Cloud className="w-4 h-4 text-emerald-500" />}
+                            {syncStatus === 'syncing' && <CloudLightning className="w-4 h-4 text-amber-500 animate-pulse" />}
+                            {syncStatus === 'offline' && <CloudOff className="w-4 h-4 text-slate-400" />}
+                            {syncStatus === 'error' && <CloudOff className="w-4 h-4 text-red-500" />}
+                        </>
+                    )}
                 </button>
                 <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full transition-colors">
                     {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
@@ -551,6 +517,61 @@ const ChatInterface: React.FC<Props> = ({
             }
         `}</style>
         <div className="max-w-3xl mx-auto space-y-6">
+            <div className="w-full mb-6 animate-fade-in">
+                <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+                    <h3 className="font-black text-slate-800 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2 text-xs">
+                        <BookOpen className="w-4 h-4 text-indigo-500"/>
+                        {t('guide.title')}
+                    </h3>
+                    <div className="space-y-2">
+                        {[
+                            { id: 'start_lesson', icon: Play, color: 'text-emerald-500', action: () => { setShowStartButton(true); handleStartCourse(); } },
+                            { id: 'pronunciation', icon: Volume2, color: 'text-cyan-500' },
+                            { id: 'exercise', icon: Brain, color: 'text-purple-500', action: onStartExercise },
+                            { id: 'dialogue', icon: MessageCircle, color: 'text-blue-500', action: onStartPractice },
+                            { id: 'voice_call', icon: Phone, color: 'text-indigo-500', action: onStartVoiceCall },
+                            { id: 'exam', icon: Trophy, color: 'text-rose-500', action: onStartExam },
+                            { id: 'certificate', icon: Award, color: 'text-yellow-500', action: onShowProfile },
+                            { id: 'credits', icon: Zap, color: 'text-amber-500', action: onShowPayment },
+                            { id: 'change_course', icon: Repeat, color: 'text-red-500', action: onChangeCourse }
+                        ].map((item) => {
+                            const isOpen = openGuideItem === item.id;
+                            const hasAction = !!item.action;
+                            
+                            return (
+                                <div key={item.id} className="border border-slate-100 dark:border-slate-700/50 rounded-xl overflow-hidden">
+                                    <div className="w-full flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                                        <button 
+                                            onClick={() => item.action ? item.action() : setOpenGuideItem(isOpen ? null : item.id)}
+                                            className={`flex items-center gap-3 flex-1 text-left ${hasAction ? 'cursor-pointer hover:opacity-80' : ''}`}
+                                        >
+                                            <item.icon className={`w-4 h-4 ${item.color}`} />
+                                            <span className={`text-xs font-bold ${hasAction ? 'text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2' : 'text-slate-700 dark:text-slate-200'}`}>
+                                                {t(`guide.${item.id}`).split(':')[0]}
+                                            </span>
+                                        </button>
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenGuideItem(isOpen ? null : item.id);
+                                            }}
+                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full transition-colors"
+                                        >
+                                            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+                                    </div>
+                                    {isOpen && (
+                                        <div className="p-3 pt-0 bg-slate-50/50 dark:bg-slate-800/50 text-xs text-slate-500 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-700/50">
+                                            {t(`guide.${item.id}`).split(':')[1] || t(`guide.${item.id}`)}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
             {messages.map((msg, idx) => (
             <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up group`}>
                 {msg.role === 'model' && (
@@ -570,7 +591,7 @@ const ChatInterface: React.FC<Props> = ({
                                 onClick={() => speakingMessageId === msg.id ? stopSpeaking() : playMessageAudio(msg.text, msg.id, CREDIT_COSTS.AUDIO_MESSAGE)} 
                                 className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-2 ${speakingMessageId === msg.id ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100'}`}
                                 title="Écouter tout le message"
-                             >
+                            >
                                 <span className="text-xs font-bold">{t('common.listen')}</span>
                                 {isLoadingAudio && speakingMessageId === msg.id ? <Loader2 className="w-4 h-4 animate-spin" /> : speakingMessageId === msg.id ? <StopCircle className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                              </button>
@@ -582,38 +603,6 @@ const ChatInterface: React.FC<Props> = ({
             
             {showStartButton && !isStreaming && (
                 <div className="flex flex-col items-center gap-4 animate-fade-in-up w-full max-w-sm mx-auto">
-                    <div className="w-full">
-                        <div className="mt-3 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 shadow-xl animate-slide-up text-left space-y-4 mb-4">
-                            <div className="flex justify-between items-center mb-2">
-                                <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-widest text-xs flex items-center gap-2">
-                                    <BookOpen className="w-4 h-4 text-indigo-500"/>
-                                    {t('chat.guide_title')}
-                                </h3>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl h-fit shrink-0"><Play className="w-5 h-5 text-indigo-600 dark:text-indigo-400 fill-current"/></div>
-                                <div>
-                                    <strong className="block text-slate-900 dark:text-white mb-1 text-base">{t('chat.guide_step_1')}</strong>
-                                    {t('chat.guide_step_1_desc')}
-                                </div>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="p-2.5 bg-purple-100 dark:bg-purple-900/30 rounded-xl h-fit shrink-0"><Languages className="w-5 h-5 text-purple-600 dark:text-purple-400"/></div>
-                                <div>
-                                    <strong className="block text-slate-900 dark:text-white mb-1 text-base">{t('chat.guide_step_2')}</strong>
-                                    {t('chat.guide_step_2_desc')}
-                                </div>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="p-2.5 bg-amber-100 dark:bg-amber-900/30 rounded-xl h-fit shrink-0"><Volume2 className="w-5 h-5 text-amber-600 dark:text-amber-400"/></div>
-                                <div>
-                                    <strong className="block text-slate-900 dark:text-white mb-1 text-base">{t('chat.guide_step_3')}</strong>
-                                    {t('chat.guide_step_3_desc')}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <button onClick={handleStartCourse} className="w-full px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-2xl shadow-xl hover:scale-105 transition-transform flex items-center justify-center gap-3 active:scale-95 text-lg">
                         <Play className="w-6 h-6 fill-current" />
                         {t('chat.start_button')}
