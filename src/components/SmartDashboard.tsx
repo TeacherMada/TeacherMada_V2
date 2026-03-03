@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { UserProfile, ChatMessage, SmartNotification } from '../types';
+import { UserProfile, ChatMessage, SmartNotification, VoiceName } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { toast } from './Toaster';
@@ -60,6 +60,8 @@ const SmartDashboard: React.FC<Props> = ({
   
   // Edit Profile State
   const [editName, setEditName] = useState(user?.username || '');
+  const [editTeacherName, setEditTeacherName] = useState(user?.preferences?.teacherName || 'TeacherMada');
+  const [editVoiceName, setEditVoiceName] = useState<VoiceName>(user?.preferences?.voiceName || 'Kore');
 
   // Low Credit Check
   const isLowCredits = user?.credits < 2;
@@ -125,7 +127,15 @@ const SmartDashboard: React.FC<Props> = ({
 
   const handleSaveProfile = async () => {
       if (!editName.trim()) return;
-      const updated = { ...user, username: editName };
+      const updated = { 
+          ...user, 
+          username: editName,
+          preferences: {
+              ...(user.preferences || {}),
+              teacherName: editTeacherName.trim() || 'TeacherMada',
+              voiceName: editVoiceName
+          } as any
+      };
       await storageService.saveUserProfile(updated);
       onUpdateUser(updated);
       toast.success(t('common.success'));
@@ -782,6 +792,30 @@ const SmartDashboard: React.FC<Props> = ({
                                 onChange={e => setEditName(e.target.value)} 
                                 className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.teacher_name') || 'Nom du Professeur'}</label>
+                            <input 
+                                type="text" 
+                                value={editTeacherName} 
+                                onChange={e => setEditTeacherName(e.target.value)} 
+                                placeholder="TeacherMada"
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.voice_style') || 'Style de Voix'}</label>
+                            <select 
+                                value={editVoiceName} 
+                                onChange={e => setEditVoiceName(e.target.value as VoiceName)} 
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all appearance-none"
+                            >
+                                <option value="Kore">Kore (Femme, Douce)</option>
+                                <option value="Zephyr">Zephyr (Femme, Dynamique)</option>
+                                <option value="Puck">Puck (Homme, Chaleureux)</option>
+                                <option value="Charon">Charon (Homme, Grave)</option>
+                                <option value="Fenrir">Fenrir (Homme, Énergique)</option>
+                            </select>
                         </div>
                         <button onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition-transform">
                             <Save className="w-5 h-5"/> {t('dashboard.save_changes')}

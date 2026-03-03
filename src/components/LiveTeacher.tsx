@@ -268,7 +268,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       try {
           // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
           const sysPrompt = `
-          IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
+          IDENTITY: You are "${user.preferences?.teacherName || 'TeacherMada'}", a highly skilled native ${user.preferences?.targetLanguage} teacher.
           CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
           
           AUDIO INSTRUCTIONS:
@@ -303,7 +303,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   responseModalities: [Modality.AUDIO],
                   systemInstruction: { parts: [{ text: sysPrompt }] },
                   speechConfig: {
-                      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+                      voiceConfig: { prebuiltVoiceConfig: { voiceName: user.preferences?.voiceName || 'Kore' } }
                   }
               },
               callbacks: {
@@ -332,7 +332,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                           if (audioData) {
                               setTeacherSpeaking(true);
-                              setSubStatus("TeacherMada parle...");
+                              setSubStatus(`${user.preferences?.teacherName || 'TeacherMada'} parle...`);
                               await playAudioChunk(audioData, ctx);
                           }
                           
@@ -548,7 +548,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   </span>
               </div>
               
-              <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight drop-shadow-md">TeacherMada</h2>
+              <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight drop-shadow-md">{user.preferences?.teacherName || 'TeacherMada'}</h2>
               <div className="flex items-center gap-2 mt-2 text-indigo-400 font-medium">
                   <Globe className="w-4 h-4" />
                   <span className="text-sm">Immersion {user.preferences?.targetLanguage} • {user.preferences?.level}</span>
@@ -608,7 +608,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   {teacherSpeaking ? (
                       <>
                         <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-                        <span className="text-emerald-100 text-xs font-bold uppercase tracking-wide">TeacherMada parle...</span>
+                        <span className="text-emerald-100 text-xs font-bold uppercase tracking-wide">{user.preferences?.teacherName || 'TeacherMada'} parle...</span>
                       </>
                   ) : (
                       <>

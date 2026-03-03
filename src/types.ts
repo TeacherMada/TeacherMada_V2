@@ -38,6 +38,7 @@ export interface UserPreferences {
   explanationLanguage: string;
   mode: string;
   voiceName: VoiceName;
+  teacherName?: string;
   needsAssessment?: boolean;
 }
 

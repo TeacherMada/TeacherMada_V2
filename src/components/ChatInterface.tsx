@@ -147,7 +147,7 @@ const ChatInterface: React.FC<Props> = ({
 
       try {
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
-          const pcmBuffer = await generateSpeech(cleanText, undefined, cost);
+          const pcmBuffer = await generateSpeech(cleanText, user.preferences?.voiceName || 'Kore', cost);
           
           if (!pcmBuffer) {
               // Fallback to Browser TTS
@@ -244,7 +244,11 @@ const ChatInterface: React.FC<Props> = ({
           const level = user.preferences?.level;
 
           const welcomeTitle = t('chat.welcome_title');
-          const welcomeBody = t('chat.welcome_text', { targetLang: targetLang || '', level: level || '' });
+          const welcomeBody = t('chat.welcome_text', { 
+              targetLang: targetLang || '', 
+              level: level || '',
+              teacherName: user.preferences?.teacherName || 'TeacherMada'
+          });
           const welcomeText = `${welcomeTitle}\n\n${welcomeBody}`;
 
           const initialMsg: ChatMessage = {
@@ -521,48 +525,58 @@ const ChatInterface: React.FC<Props> = ({
                 <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                     <h3 className="font-black text-slate-800 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2 text-xs">
                         <BookOpen className="w-4 h-4 text-indigo-500"/>
-                        {t('guide.title')}
+                        {t('common.guide.title')}
                     </h3>
                     <div className="space-y-2">
                         {[
-                            { id: 'start_lesson', icon: Play, color: 'text-emerald-500', action: () => { setShowStartButton(true); handleStartCourse(); } },
+                            { id: 'start_lesson', icon: Play, color: 'text-emerald-500', action: handleStartCourse },
                             { id: 'pronunciation', icon: Volume2, color: 'text-cyan-500' },
                             { id: 'exercise', icon: Brain, color: 'text-purple-500', action: onStartExercise },
                             { id: 'dialogue', icon: MessageCircle, color: 'text-blue-500', action: onStartPractice },
-                            { id: 'voice_call', icon: Phone, color: 'text-indigo-500', action: onStartVoiceCall },
+                            { id: 'voice_call', icon: Phone, color: 'text-indigo-500', action: handleVoiceCallClick },
                             { id: 'exam', icon: Trophy, color: 'text-rose-500', action: onStartExam },
-                            { id: 'certificate', icon: Award, color: 'text-yellow-500', action: onShowProfile },
+                            { id: 'certificate', icon: Award, color: 'text-yellow-500' },
                             { id: 'credits', icon: Zap, color: 'text-amber-500', action: onShowPayment },
                             { id: 'change_course', icon: Repeat, color: 'text-red-500', action: onChangeCourse }
                         ].map((item) => {
                             const isOpen = openGuideItem === item.id;
-                            const hasAction = !!item.action;
-                            
+                            const guideText = t(`common.guide.${item.id}`);
+                            const [title, ...descParts] = guideText.includes(':') ? guideText.split(':') : [guideText, ''];
+                            const description = descParts.join(':').trim();
+
                             return (
                                 <div key={item.id} className="border border-slate-100 dark:border-slate-700/50 rounded-xl overflow-hidden">
                                     <div className="w-full flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
-                                        <button 
-                                            onClick={() => item.action ? item.action() : setOpenGuideItem(isOpen ? null : item.id)}
-                                            className={`flex items-center gap-3 flex-1 text-left ${hasAction ? 'cursor-pointer hover:opacity-80' : ''}`}
+                                        <div 
+                                            className={`flex items-center gap-3 flex-1 ${item.action ? 'cursor-pointer group' : ''}`}
+                                            onClick={(e) => {
+                                                if (item.action) {
+                                                    e.stopPropagation();
+                                                    item.action();
+                                                } else {
+                                                    setOpenGuideItem(isOpen ? null : item.id);
+                                                }
+                                            }}
                                         >
                                             <item.icon className={`w-4 h-4 ${item.color}`} />
-                                            <span className={`text-xs font-bold ${hasAction ? 'text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2' : 'text-slate-700 dark:text-slate-200'}`}>
-                                                {t(`guide.${item.id}`).split(':')[0]}
+                                            <span className={`text-xs font-bold ${item.action ? 'text-indigo-600 dark:text-indigo-400 group-hover:underline' : 'text-slate-700 dark:text-slate-200'}`} title={item.action ? "Cliquez pour ouvrir" : ""}>
+                                                {title.trim()}
                                             </span>
-                                        </button>
+                                        </div>
                                         <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setOpenGuideItem(isOpen ? null : item.id);
                                             }}
-                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full transition-colors"
+                                            className="p-1 -mr-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"
+                                            title="Voir l'explication"
                                         >
                                             <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
                                         </button>
                                     </div>
-                                    {isOpen && (
+                                    {isOpen && description && (
                                         <div className="p-3 pt-0 bg-slate-50/50 dark:bg-slate-800/50 text-xs text-slate-500 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-700/50">
-                                            {t(`guide.${item.id}`).split(':')[1] || t(`guide.${item.id}`)}
+                                            {description}
                                         </div>
                                     )}
                                 </div>

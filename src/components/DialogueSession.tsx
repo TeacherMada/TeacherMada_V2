@@ -347,7 +347,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   <div className={`absolute top-0 left-0 w-full h-2 ${scenario.color}`}></div>
                   <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}><div className="text-white">{scenario.icon}</div></div>
                   <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-2">{scenario.title}</h2>
-                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. TeacherMada vous guide, corrige, apprend en temps réel"</p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. {user.preferences?.teacherName || 'TeacherMada'} vous guide, corrige, apprend en temps réel"</p>
                   
                   <div className="flex gap-3">
                       <button onClick={() => setStep('selection')} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>
@@ -414,7 +414,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                 <div className="flex justify-start">
                     <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none border border-slate-100 dark:border-slate-700 flex items-center gap-2 shadow-sm">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500"/>
-                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">TeacherMada écrit...</span>
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{user.preferences?.teacherName || 'TeacherMada'} écrit...</span>
                     </div>
                 </div>
             )}

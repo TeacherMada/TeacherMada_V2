@@ -16,7 +16,7 @@ const AppGuide: React.FC<AppGuideProps> = ({ onClose }) => {
       content: (
         <div className="space-y-4">
           <p className="text-slate-600 dark:text-slate-300">
-            Bienvenue sur <strong>TeacherMada</strong> ! Cette plateforme utilise l'Intelligence Artificielle pour vous apprendre les langues comme un vrai professeur.
+            Bienvenue sur <strong>TeacherMada</strong> ! Cette plateforme vous apprend les langues comme un vrai professeur.
           </p>
           <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
             <h4 className="font-bold text-indigo-700 dark:text-indigo-300 text-sm mb-2">Comment ça marche ?</h4>
