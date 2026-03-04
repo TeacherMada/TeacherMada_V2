@@ -69,7 +69,7 @@ export default defineConfig(({ mode }) => {
     define: {
       // Stringify the API key to inject it into the client code
       'process.env.API_KEY': JSON.stringify(apiKey),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || apiKey),
+      'process.env.GEMINI_API_KEY': JSON.stringify(apiKey),
     },
     build: {
       outDir: 'dist',
