@@ -20,6 +20,12 @@ const callGeminiFunction = async (action: string, payload: any) => {
         throw new Error(error.message || "Erreur de communication avec l'IA");
     }
 
+    // Check for application-level error returned by function (200 OK but with error field)
+    if (data && data.error) {
+        console.error(`[Gemini Function] Application Error in ${action}:`, data.error);
+        throw new Error(data.error);
+    }
+
     return data;
 };
 

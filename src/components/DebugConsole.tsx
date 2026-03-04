@@ -218,6 +218,27 @@ const DebugConsole: React.FC = () => {
           }} className="p-1.5 hover:bg-purple-900/50 rounded text-purple-400 font-bold text-[10px] px-2" title="Test Gemini">
             TEST GEMINI
           </button>
+          <button onClick={async () => {
+              console.log("Testing Edge Function Health...");
+              try {
+                  const { supabase } = await import('../lib/supabase');
+                  const { data, error } = await supabase.functions.invoke('gemini-api', {
+                      body: { action: 'health' }
+                  });
+                  if (error) throw error;
+                  console.log("Health Check:", data);
+                  if (data.status === 'ok') {
+                      alert(`Edge Function OK (Key len: ${data.keyLength})`);
+                  } else {
+                      alert(`Edge Function Health Failed: ${JSON.stringify(data)}`);
+                  }
+              } catch (e: any) {
+                  console.error("Health Check Error:", e);
+                  alert(`Health Check Error: ${e.message}`);
+              }
+          }} className="p-1.5 hover:bg-emerald-900/50 rounded text-emerald-400 font-bold text-[10px] px-2" title="Test Health">
+            TEST HEALTH
+          </button>
           <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded text-white/70">
             <X size={16} />
           </button>

@@ -5,14 +5,13 @@
 3. Set secrets: supabase secrets set GEMINI_API_KEY=your_key_here
 */
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -20,13 +19,28 @@ serve(async (req) => {
   try {
     const { action, model, contents, config, schemaType, text, voiceName } = await req.json()
     
-    // Get API Key from Secrets
-    const apiKey = Deno.env.get('GEMINI_API_KEY')
-    if (!apiKey) {
-      throw new Error('Missing GEMINI_API_KEY in Edge Function Secrets')
+    // 1. HEALTH CHECK
+    if (action === 'health') {
+        const apiKey = Deno.env.get('GEMINI_API_KEY');
+        return new Response(JSON.stringify({ 
+            status: 'ok', 
+            hasKey: !!apiKey,
+            keyLength: apiKey ? apiKey.length : 0 
+        }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
     }
 
-    // Handle Rotation if comma separated
+    // 2. GET API KEY
+    const apiKey = Deno.env.get('GEMINI_API_KEY')
+    if (!apiKey) {
+      // Return 200 with error field to see it in client
+      return new Response(JSON.stringify({ error: 'Missing GEMINI_API_KEY in Edge Function Secrets' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Handle Rotation
     const keys = apiKey.split(',').map(k => k.trim()).filter(k => k)
     const selectedKey = keys[Math.floor(Math.random() * keys.length)]
     
@@ -35,7 +49,7 @@ serve(async (req) => {
     // --- ACTIONS ---
 
     if (action === 'generate') {
-      const targetModel = model || 'gemini-2.5-flash';
+      const targetModel = model || 'gemini-2.0-flash'; // Fallback to stable model
       const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,7 +61,9 @@ serve(async (req) => {
 
       if (!response.ok) {
         const err = await response.text();
-        throw new Error(`Gemini API Error: ${err}`);
+        return new Response(JSON.stringify({ error: `Gemini API Error (${response.status}): ${err}` }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       const data = await response.json();
@@ -59,7 +75,7 @@ serve(async (req) => {
     }
 
     if (action === 'generate_stream') {
-        const targetModel = model || 'gemini-2.5-flash';
+        const targetModel = model || 'gemini-2.0-flash';
         const response = await fetch(`${BASE_URL}/${targetModel}:streamGenerateContent?alt=sse&key=${selectedKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -71,7 +87,11 @@ serve(async (req) => {
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Gemini API Error: ${err}`);
+            // Cannot return JSON for stream, must throw or return error event
+            // We return a JSON error response instead of stream
+             return new Response(JSON.stringify({ error: `Gemini Stream API Error (${response.status}): ${err}` }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         const reader = response.body?.getReader();
@@ -124,10 +144,10 @@ serve(async (req) => {
     }
 
     if (action === 'generate_json') {
-        const targetModel = model || 'gemini-2.5-flash';
+        const targetModel = model || 'gemini-2.0-flash';
         let schema = config?.responseSchema;
         
-        // Pre-defined schemas for security/convenience
+        // Pre-defined schemas
         if (schemaType === 'ARRAY_VOCAB') {
              schema = {
                 type: 'ARRAY',
@@ -185,7 +205,9 @@ serve(async (req) => {
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Gemini API Error: ${err}`);
+             return new Response(JSON.stringify({ error: `Gemini JSON API Error (${response.status}): ${err}` }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         const data = await response.json();
@@ -197,13 +219,9 @@ serve(async (req) => {
     }
 
     if (action === 'generate_speech') {
-        // Note: TTS via REST API might differ slightly or require specific endpoint.
-        // Using standard generateContent with audio modality if supported by model, 
-        // OR using the specific speech endpoint if available.
-        // For gemini-2.5-flash-preview-tts, it uses generateContent.
+        const targetModel = model || 'gemini-2.0-flash-exp'; // TTS model
         
-        const targetModel = model || 'gemini-2.5-flash-preview-tts';
-        
+        // Try standard generateContent first (works for some models)
         const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -222,7 +240,9 @@ serve(async (req) => {
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Gemini TTS API Error: ${err}`);
+             return new Response(JSON.stringify({ error: `Gemini TTS API Error (${response.status}): ${err}` }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         const data = await response.json();
@@ -233,11 +253,12 @@ serve(async (req) => {
         })
     }
 
-    throw new Error(`Unknown action: ${action}`)
+    return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
 
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+    return new Response(JSON.stringify({ error: `Edge Function Crash: ${error.message}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
