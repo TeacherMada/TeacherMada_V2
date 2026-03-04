@@ -22,7 +22,7 @@ const AppGuide: React.FC<AppGuideProps> = ({ onClose }) => {
             <h4 className="font-bold text-indigo-700 dark:text-indigo-300 text-sm mb-2">Comment ça marche ?</h4>
             <ul className="text-sm space-y-2 text-slate-600 dark:text-slate-300">
               <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> Des cours structurés par le Chat.</li>
-              <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> De la pratique orale avec l'IA en direct.</li>
+              <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> De la pratique orale avec votre professeur en direct.</li>
               <li className="flex gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0"/> Des crédits pour utiliser les outils puissants.</li>
             </ul>
           </div>
@@ -80,13 +80,13 @@ const AppGuide: React.FC<AppGuideProps> = ({ onClose }) => {
       content: (
         <div className="space-y-4">
           <p className="text-slate-600 dark:text-slate-300">
-            Parlez en temps réel avec une IA native ! C'est le moyen le plus rapide pour devenir fluide.
+            Parlez en temps réel avec un professeur natif ! C'est le moyen le plus rapide pour devenir fluide.
           </p>
           <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-100 dark:border-purple-800">
             <h4 className="font-bold text-purple-700 dark:text-purple-300 text-sm mb-2">Comment faire ?</h4>
             <ol className="list-decimal pl-4 space-y-1 text-sm text-slate-600 dark:text-slate-300">
               <li>Cliquez sur le bouton "Live Teacher" dans le menu.</li>
-              <li>L'IA se présente. Parlez-lui comme à un humain.</li>
+              <li>Le professeur se présente. Parlez-lui comme à un humain.</li>
               <li>Elle vous corrigera doucement si vous faites une faute.</li>
             </ol>
           </div>
