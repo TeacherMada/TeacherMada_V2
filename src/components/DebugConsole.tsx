@@ -204,6 +204,24 @@ const DebugConsole: React.FC = () => {
           }} className="p-1.5 hover:bg-yellow-900/50 rounded text-yellow-400 font-bold text-[10px] px-2" title="Test Credits">
             TEST CREDITS
           </button>
+          <button onClick={async () => {
+              console.log("Testing Gemini Direct...");
+              try {
+                  const { getAiClient, TEXT_MODEL } = await import('../services/geminiService');
+                  const ai = getAiClient();
+                  const result = await ai.models.generateContent({
+                      model: TEXT_MODEL,
+                      contents: "Hello Gemini, are you there?"
+                  });
+                  console.log("Gemini Response:", result.text);
+                  alert(`Gemini OK: ${result.text}`);
+              } catch (e: any) {
+                  console.error("Gemini Test Error:", e);
+                  alert(`Gemini Error: ${e.message}`);
+              }
+          }} className="p-1.5 hover:bg-purple-900/50 rounded text-purple-400 font-bold text-[10px] px-2" title="Test Gemini">
+            TEST GEMINI
+          </button>
           <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded text-white/70">
             <X size={16} />
           </button>

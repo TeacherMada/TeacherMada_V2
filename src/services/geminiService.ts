@@ -10,6 +10,7 @@ import { creditService, CREDIT_COSTS } from "./creditService";
 
 export const getAiClient = () => {
     const apiKey = process.env.GEMINI_API_KEY;
+    console.log("[Gemini] Initializing client. Key present:", !!apiKey);
     if (!apiKey) {
         console.error("[Gemini] Critical: Missing GEMINI_API_KEY environment variable");
         throw new Error("Clé API Gemini manquante.");
@@ -76,6 +77,7 @@ export async function* sendMessageStream(
   }
 
   try {
+      console.log("[Gemini] Stream started. Model:", TEXT_MODEL);
       const ai = getAiClient();
       
       const chat = ai.chats.create({
@@ -94,18 +96,25 @@ export async function* sendMessageStream(
         .join('\n\n');
 
       const finalMessage = contextPrompt ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}` : message;
+      console.log("[Gemini] Sending message:", finalMessage.substring(0, 100) + "...");
 
       const responseStream = await chat.sendMessageStream({ message: finalMessage });
 
       for await (const chunk of responseStream) {
           const c = chunk as any;
-          if (c.text) yield c.text;
+          if (c.text) {
+              // console.log("[Gemini] Chunk received:", c.text.substring(0, 20));
+              yield c.text;
+          }
       }
       
+      console.log("[Gemini] Stream completed successfully.");
       await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
 
-  } catch (e) {
-      console.error("Stream exception:", e);
+  } catch (e: any) {
+      console.error("[Gemini] Stream exception:", e);
+      if (e.message) console.error("[Gemini] Error message:", e.message);
+      if (e.status) console.error("[Gemini] Error status:", e.status);
       yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer dans un instant.";
   }
 }
@@ -116,6 +125,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
     if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
     try {
+        console.log(`[Gemini TTS] Generating speech for: "${text.substring(0, 20)}..." with voice: ${voiceName}`);
         const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: AUDIO_MODEL,
@@ -131,7 +141,10 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
         });
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) return null;
+        if (!base64Audio) {
+            console.warn("[Gemini TTS] No audio data received.");
+            return null;
+        }
 
         await creditService.deduct(user.id, cost);
 
@@ -141,10 +154,11 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
+        console.log("[Gemini TTS] Audio generated successfully.");
         return bytes.buffer as ArrayBuffer;
 
     } catch (e) {
-        console.warn("TTS Failed (Switching to Browser TTS):", e);
+        console.warn("[Gemini TTS] Failed (Switching to Browser TTS):", e);
         return null;
     }
 };
