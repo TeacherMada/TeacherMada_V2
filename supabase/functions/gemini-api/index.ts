@@ -6,7 +6,6 @@
 */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { GoogleGenAI } from "https://esm.sh/@google/genai@0.1.1"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,35 +30,85 @@ serve(async (req) => {
     const keys = apiKey.split(',').map(k => k.trim()).filter(k => k)
     const selectedKey = keys[Math.floor(Math.random() * keys.length)]
     
-    const ai = new GoogleGenAI({ apiKey: selectedKey })
+    const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     // --- ACTIONS ---
 
     if (action === 'generate') {
-      const response = await ai.models.generateContent({
-        model: model || 'gemini-2.5-flash',
-        contents,
-        config
-      })
-      return new Response(JSON.stringify({ text: response.text }), {
+      const targetModel = model || 'gemini-2.5-flash';
+      const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+          generationConfig: config
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Gemini API Error: ${err}`);
+      }
+
+      const data = await response.json();
+      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+      return new Response(JSON.stringify({ text: generatedText }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
     if (action === 'generate_stream') {
-        const responseStream = await ai.models.generateContentStream({
-            model: model || 'gemini-2.5-flash',
-            contents,
-            config
+        const targetModel = model || 'gemini-2.5-flash';
+        const response = await fetch(`${BASE_URL}/${targetModel}:streamGenerateContent?alt=sse&key=${selectedKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+                generationConfig: config
+            })
         });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Gemini API Error: ${err}`);
+        }
+
+        const reader = response.body?.getReader();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
 
         const stream = new ReadableStream({
             async start(controller) {
-                const encoder = new TextEncoder();
+                if (!reader) {
+                    controller.close();
+                    return;
+                }
+
                 try {
-                    for await (const chunk of responseStream) {
-                        if (chunk.text) {
-                            controller.enqueue(encoder.encode(chunk.text));
+                    let buffer = "";
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ""; // Keep incomplete line
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const jsonStr = line.slice(6).trim();
+                                if (jsonStr === '[DONE]') continue;
+                                try {
+                                    const data = JSON.parse(jsonStr);
+                                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                                    if (text) {
+                                        controller.enqueue(encoder.encode(text));
+                                    }
+                                } catch (e) {
+                                    // Ignore parse errors
+                                }
+                            }
                         }
                     }
                     controller.close();
@@ -75,6 +124,7 @@ serve(async (req) => {
     }
 
     if (action === 'generate_json') {
+        const targetModel = model || 'gemini-2.5-flash';
         let schema = config?.responseSchema;
         
         // Pre-defined schemas for security/convenience
@@ -120,36 +170,63 @@ serve(async (req) => {
             }
         }
 
-        const response = await ai.models.generateContent({
-            model: model || 'gemini-2.5-flash',
-            contents,
-            config: {
-                ...config,
-                responseMimeType: 'application/json',
-                responseSchema: schema
-            }
-        })
+        const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+                generationConfig: {
+                    ...config,
+                    responseMimeType: 'application/json',
+                    responseSchema: schema
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Gemini API Error: ${err}`);
+        }
+
+        const data = await response.json();
+        const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
         
-        return new Response(JSON.stringify({ json: JSON.parse(response.text || '{}') }), {
+        return new Response(JSON.stringify({ json: JSON.parse(generatedText) }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
     }
 
     if (action === 'generate_speech') {
-        const response = await ai.models.generateContent({
-            model: model || 'gemini-2.5-flash-preview-tts',
-            contents: [{ parts: [{ text: text }] }],
-            config: {
-                responseModalities: ['AUDIO'],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
+        // Note: TTS via REST API might differ slightly or require specific endpoint.
+        // Using standard generateContent with audio modality if supported by model, 
+        // OR using the specific speech endpoint if available.
+        // For gemini-2.5-flash-preview-tts, it uses generateContent.
+        
+        const targetModel = model || 'gemini-2.5-flash-preview-tts';
+        
+        const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
+                        }
                     }
                 }
-            }
+            })
         });
-        
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Gemini TTS API Error: ${err}`);
+        }
+
+        const data = await response.json();
+        const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         
         return new Response(JSON.stringify({ audioBase64: base64Audio }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
