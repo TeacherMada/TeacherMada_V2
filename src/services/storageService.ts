@@ -852,10 +852,22 @@ export const storageService = {
     const cleanLang = prefs.targetLanguage.split(' ')[0];
     const cleanMode = prefs.mode.replace(/\s/g, '_');
 
-    // 1. Try Supabase
+    // 1. Load Local (Instant)
+    const localData = localStorage.getItem(key);
+    let localSession: LearningSession | null = localData ? JSON.parse(localData) : null;
+
+    // 2. Try Supabase with Timeout (3s) to ensure fluidity
     if (isSupabaseConfigured()) {
         try {
-            const { data } = await supabase.from('learning_sessions').select('*').eq('id', key).single();
+            const fetchPromise = supabase.from('learning_sessions').select('*').eq('id', key).single();
+            
+            // Timeout de 3s pour ne pas bloquer l'UI
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Supabase timeout')), 3000)
+            );
+
+            const { data } = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
             if (data) {
                 const session: LearningSession = {
                     id: data.id,
@@ -866,33 +878,39 @@ export const storageService = {
                     messages: data.messages || [],
                     updatedAt: new Date(data.updated_at).getTime()
                 };
+                
+                // Conflict Resolution: Keep local if newer (unsynced changes)
+                if (localSession && localSession.updatedAt > session.updatedAt) {
+                     console.log("Local session is newer, keeping local and syncing up.");
+                     storageService.saveSession(localSession); // Background sync
+                     return localSession;
+                }
+
                 localStorage.setItem(key, JSON.stringify(session)); // Sync local
                 return session;
             }
         } catch (e) {
-            // Not found or error, fallback to local
+            console.warn("Supabase fetch failed or timed out, falling back to local:", e);
         }
     }
 
-    // 2. Try Local Storage
-    const localData = localStorage.getItem(key);
-    if (localData) {
-        const session = JSON.parse(localData);
-        // Sync to Supabase in background
+    // 3. Return Local if exists (Offline or Timeout Fallback)
+    if (localSession) {
+        // Sync to Supabase in background if we have local data but server missed it
         if (isSupabaseConfigured()) {
             supabase.from('learning_sessions').upsert({
                 id: key,
                 user_id: userId,
-                type: 'lesson', // Default fallback
+                type: 'lesson', 
                 language: cleanLang,
                 level: prefs.level,
-                messages: session.messages
+                messages: localSession.messages
             }).then();
         }
-        return session;
+        return localSession;
     }
 
-    // 3. Create New
+    // 4. Create New
     const newSession: LearningSession = { 
         id: key, 
         userId,
