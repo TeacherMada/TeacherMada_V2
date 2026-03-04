@@ -330,9 +330,9 @@ const AppContent: React.FC = () => {
     
     setIsResuming(true);
     
-    // Timeout de 10 secondes pour éviter le blocage infini
+    // Timeout de 15 secondes pour laisser le temps au service de fallback (qui a un timeout de 10s)
     const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout")), 10000)
+        setTimeout(() => reject(new Error("Timeout")), 15000)
     );
 
     try {
@@ -352,7 +352,7 @@ const AppContent: React.FC = () => {
         }
     } catch (error) {
         console.error("Error resuming course:", error);
-        toast.error("Le chargement est trop long. Veuillez vérifier votre connexion et réessayer.");
+        toast.error("Le chargement prend plus de temps que prévu. Vérifiez votre connexion.");
     } finally {
         setIsResuming(false);
     }

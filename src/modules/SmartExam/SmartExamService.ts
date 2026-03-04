@@ -3,8 +3,23 @@ import { Type } from "@google/genai";
 import { UserProfile } from "../../types";
 import { SmartExam, ExamResultDetailed, ExamType } from "./types";
 import { storageService } from "../../services/storageService";
-import { getAiClient, TEXT_MODEL } from "../../services/geminiService";
+import { TEXT_MODEL, generateText } from "../../services/geminiService"; // Use generateText or expose callGeminiFunction if needed, but better to use existing services or refactor
 import { creditService, CREDIT_COSTS } from "../../services/creditService";
+import { supabase } from "../../lib/supabase"; // Import supabase to call edge function directly if needed, or better, add a helper in geminiService
+
+// Helper to call edge function directly for specific schemas not covered by geminiService generic methods
+const callGeminiFunction = async (action: string, payload: any) => {
+    const { data, error } = await supabase.functions.invoke('gemini-api', {
+        body: { action, ...payload }
+    });
+
+    if (error) {
+        console.error(`[Gemini Function] Error calling ${action}:`, error);
+        throw new Error(error.message || "Erreur de communication avec l'IA");
+    }
+
+    return data;
+};
 
 export const SmartExamService = {
     
@@ -65,38 +80,39 @@ export const SmartExamService = {
             }
             `;
 
-            const ai = getAiClient();
-            const response = await ai.models.generateContent({
-                model: TEXT_MODEL,
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            sections: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        id: { type: Type.STRING },
-                                        type: { type: Type.STRING },
-                                        question: { type: Type.STRING },
-                                        context: { type: Type.STRING },
-                                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                        weight: { type: Type.NUMBER }
-                                    },
-                                    required: ["id", "type", "question", "weight"]
-                                }
-                            }
+            // Define schema for Edge Function
+            const schema = {
+                type: Type.OBJECT,
+                properties: {
+                    sections: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                id: { type: Type.STRING },
+                                type: { type: Type.STRING },
+                                question: { type: Type.STRING },
+                                context: { type: Type.STRING },
+                                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                weight: { type: Type.NUMBER }
+                            },
+                            required: ["id", "type", "question", "weight"]
                         }
                     }
                 }
+            };
+
+            const data = await callGeminiFunction('generate_json', {
+                model: TEXT_MODEL,
+                contents: prompt,
+                config: {
+                    responseSchema: schema
+                }
             });
 
-            const data = JSON.parse(response.text || "{}");
+            const sections = data.json?.sections;
             
-            if (!data.sections || !Array.isArray(data.sections) || data.sections.length === 0) {
+            if (!sections || !Array.isArray(sections) || sections.length === 0) {
                 throw new Error("Format d'examen invalide (Sections manquantes)");
             }
 
@@ -105,8 +121,8 @@ export const SmartExamService = {
                 type,
                 targetLevel: level,
                 language: lang,
-                sections: data.sections,
-                totalQuestions: data.sections.length,
+                sections: sections,
+                totalQuestions: sections.length,
                 createdAt: Date.now()
             };
 
@@ -149,34 +165,34 @@ export const SmartExamService = {
         `;
 
         try {
-            const ai = getAiClient();
-            const response = await ai.models.generateContent({
+            const schema = {
+                type: Type.OBJECT,
+                properties: {
+                    globalScore: { type: Type.NUMBER },
+                    skillScores: {
+                        type: Type.OBJECT,
+                        properties: {
+                            reading: { type: Type.NUMBER },
+                            writing: { type: Type.NUMBER },
+                            listening: { type: Type.NUMBER },
+                            speaking: { type: Type.NUMBER }
+                        }
+                    },
+                    detectedLevel: { type: Type.STRING },
+                    feedback: { type: Type.STRING },
+                    confidenceScore: { type: Type.NUMBER }
+                }
+            };
+
+            const data = await callGeminiFunction('generate_json', {
                 model: TEXT_MODEL,
                 contents: prompt,
                 config: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            globalScore: { type: Type.NUMBER },
-                            skillScores: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    reading: { type: Type.NUMBER },
-                                    writing: { type: Type.NUMBER },
-                                    listening: { type: Type.NUMBER },
-                                    speaking: { type: Type.NUMBER }
-                                }
-                            },
-                            detectedLevel: { type: Type.STRING },
-                            feedback: { type: Type.STRING },
-                            confidenceScore: { type: Type.NUMBER }
-                        }
-                    }
+                    responseSchema: schema
                 }
             });
 
-            const evalData = JSON.parse(response.text || "{}");
+            const evalData = data.json || {};
             const passed = (evalData.globalScore || 0) >= 70; // Seuil strict
 
             let certId = undefined;

@@ -843,9 +843,9 @@ export const storageService = {
         try {
             const fetchPromise = supabase.from('learning_sessions').select('*').eq('id', key).single();
             
-            // Timeout de 3s pour ne pas bloquer l'UI
+            // Timeout de 10s pour assurer la robustesse (au lieu de 3s)
             const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Supabase timeout')), 3000)
+                setTimeout(() => reject(new Error('Supabase timeout')), 10000)
             );
 
             const { data } = await Promise.race([fetchPromise, timeoutPromise]) as any;
@@ -872,7 +872,8 @@ export const storageService = {
                 return session;
             }
         } catch (e) {
-            console.warn("Supabase fetch failed or timed out, falling back to local:", e);
+            // Log as info/warn but don't alarm user unless critical
+            console.log("Supabase fetch failed or timed out (using local fallback):", e);
         }
     }
 

@@ -207,14 +207,10 @@ const DebugConsole: React.FC = () => {
           <button onClick={async () => {
               console.log("Testing Gemini Direct...");
               try {
-                  const { getAiClient, TEXT_MODEL } = await import('../services/geminiService');
-                  const ai = getAiClient();
-                  const result = await ai.models.generateContent({
-                      model: TEXT_MODEL,
-                      contents: "Hello Gemini, are you there?"
-                  });
-                  console.log("Gemini Response:", result.text);
-                  alert(`Gemini OK: ${result.text}`);
+                  const { generateText } = await import('../services/geminiService');
+                  const result = await generateText("Hello Gemini, are you there?");
+                  console.log("Gemini Response:", result);
+                  alert(`Gemini OK: ${result}`);
               } catch (e: any) {
                   console.error("Gemini Test Error:", e);
                   alert(`Gemini Error: ${e.message}`);

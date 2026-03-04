@@ -1,44 +1,26 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
+import { supabase } from "../lib/supabase";
 
-// --- CLIENT GEMINI DIRECT ---
-// Utilisation directe du SDK GoogleGenAI pour une stabilité et rapidité maximales.
-// Supporte la rotation de clés API (séparées par des virgules).
+// --- CLIENT GEMINI VIA SUPABASE EDGE FUNCTION ---
+// Utilisation de la Edge Function pour sécuriser les clés API et gérer la rotation côté serveur.
 
-const getRotatedApiKey = (): string | null => {
-    // Supporte l'injection via Vite (process.env.GEMINI_API_KEY) ou via import.meta.env
-    // @ts-ignore
-    const rawKeys = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
-    
-    if (!rawKeys) return null;
+const EDGE_FUNCTION_NAME = 'gemini-api';
 
-    // Gestion des clés multiples (rotation)
-    const keys = rawKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0);
-    
-    if (keys.length === 0) return null;
-    
-    // Sélection aléatoire pour répartir la charge
-    const selectedKey = keys[Math.floor(Math.random() * keys.length)];
-    
-    // Log discret (masqué)
-    console.log(`[Gemini] Using API Key ending in ...${selectedKey.slice(-4)} (Pool size: ${keys.length})`);
-    
-    return selectedKey;
-};
+// Helper pour appeler la Edge Function
+const callGeminiFunction = async (action: string, payload: any) => {
+    const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+        body: { action, ...payload }
+    });
 
-export const getAiClient = () => {
-    const apiKey = getRotatedApiKey();
-    
-    if (!apiKey) {
-        console.error("[Gemini] Critical: No valid API Key found in environment variables.");
-        console.error("Please set GEMINI_API_KEY in your project settings (comma separated for rotation).");
-        throw new Error("Configuration manquante : Clé API Gemini introuvable.");
+    if (error) {
+        console.error(`[Gemini Function] Error calling ${action}:`, error);
+        throw new Error(error.message || "Erreur de communication avec l'IA");
     }
-    
-    return new GoogleGenAI({ apiKey });
+
+    return data;
 };
 
 // Modèles par défaut
@@ -60,33 +42,31 @@ export const generateSupportResponse = async (
     }
 
     try {
-        const ai = getAiClient();
         const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
         
-        const chat = ai.chats.create({
+        // Rejouer l'historique si nécessaire (simplifié pour la stabilité)
+        const prompt = `Historique de conversation:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion actuelle: ${userQuery}`;
+
+        const data = await callGeminiFunction('generate', {
             model: TEXT_MODEL,
+            contents: prompt,
             config: {
                 systemInstruction: systemInstruction,
                 maxOutputTokens: 2000, 
                 temperature: 0.5
             }
         });
-
-        // Rejouer l'historique si nécessaire (simplifié pour la stabilité)
-        // Pour plus de stabilité, on envoie juste le dernier message avec le contexte
-        const prompt = `Historique de conversation:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion actuelle: ${userQuery}`;
-
-        const response = await chat.sendMessage({ message: prompt });
         
         storageService.incrementSupportUsage();
-        return response.text || "Je n'ai pas de réponse pour le moment.";
+        return data.text || "Je n'ai pas de réponse pour le moment.";
     } catch (e) {
         console.error("Support error:", e);
         return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer.";
     }
 };
 
-// 2. MAIN CHAT (STREAMING)
+// 2. MAIN CHAT (STREAMING VIA EDGE FUNCTION)
+// Note: Supabase Edge Functions support streaming response.
 export async function* sendMessageStream(
   message: string,
   user: UserProfile,
@@ -100,19 +80,9 @@ export async function* sendMessageStream(
   }
 
   try {
-      console.log("[Gemini] Stream started. Model:", TEXT_MODEL);
-      const ai = getAiClient();
-      
-      const chat = ai.chats.create({
-          model: TEXT_MODEL,
-          config: {
-              systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
-              temperature: 0.7,
-              maxOutputTokens: 8192,
-          }
-      });
+      console.log("[Gemini] Stream started via Edge Function. Model:", TEXT_MODEL);
 
-      // Format history for the prompt to ensure stability
+      // Format history
       const contextPrompt = history
         .filter(msg => msg.text && msg.text.trim().length > 0)
         .map(msg => `${msg.role === 'user' ? 'Élève' : 'Professeur'}: ${msg.text}`)
@@ -121,14 +91,46 @@ export async function* sendMessageStream(
       const finalMessage = contextPrompt ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}` : message;
       console.log("[Gemini] Sending message:", finalMessage.substring(0, 100) + "...");
 
-      const responseStream = await chat.sendMessageStream({ message: finalMessage });
+      // Call Edge Function with streaming enabled
+      const response = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+          body: {
+              action: 'generate_stream',
+              model: TEXT_MODEL,
+              contents: finalMessage,
+              config: {
+                  systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
+                  temperature: 0.7,
+                  maxOutputTokens: 8192,
+              }
+          },
+          headers: {
+              Accept: 'text/event-stream',
+          },
+      });
 
-      for await (const chunk of responseStream) {
-          const c = chunk as any;
-          if (c.text) {
-              // console.log("[Gemini] Chunk received:", c.text.substring(0, 20));
-              yield c.text;
+      if (response.error) throw response.error;
+
+      // Handle Streaming Response
+      if (response.data instanceof Blob) {
+           // If response is a Blob (sometimes happens with fetch polyfills), read it
+           const text = await response.data.text();
+           yield text;
+      } else if (response.data && response.data.body) {
+          // Real streaming
+          const reader = response.data.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              // Parse SSE format if needed, or just raw text depending on function implementation
+              // Assuming function returns raw text chunks for simplicity or SSE data: lines
+              yield chunk;
           }
+      } else {
+          // Fallback for non-streaming response
+          yield response.data.text || "";
       }
       
       console.log("[Gemini] Stream completed successfully.");
@@ -136,42 +138,32 @@ export async function* sendMessageStream(
 
   } catch (e: any) {
       console.error("[Gemini] Stream exception:", e);
-      if (e.message) console.error("[Gemini] Error message:", e.message);
-      if (e.status) console.error("[Gemini] Error status:", e.status);
       yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer dans un instant.";
   }
 }
 
-// 3. TEXT-TO-SPEECH (TTS) - AVEC FALLBACK SILENCIEUX
+// 3. TEXT-TO-SPEECH (TTS)
 export const generateSpeech = async (text: string, voiceName: string = 'Kore', cost: number = CREDIT_COSTS.AUDIO_MESSAGE): Promise<ArrayBuffer | null> => {
     const user = await storageService.getCurrentUser();
     if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
     try {
-        console.log(`[Gemini TTS] Generating speech for: "${text.substring(0, 20)}..." with voice: ${voiceName}`);
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: AUDIO_MODEL,
-            contents: [{ parts: [{ text: text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voiceName }
-                    }
-                }
-            }
+        console.log(`[Gemini TTS] Generating speech via Edge Function...`);
+        
+        const data = await callGeminiFunction('generate_speech', {
+            text,
+            voiceName,
+            model: AUDIO_MODEL
         });
 
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) {
+        if (!data.audioBase64) {
             console.warn("[Gemini TTS] No audio data received.");
             return null;
         }
 
         await creditService.deduct(user.id, cost);
 
-        const binaryString = atob(base64Audio);
+        const binaryString = atob(data.audioBase64);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
@@ -181,7 +173,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore', c
         return bytes.buffer as ArrayBuffer;
 
     } catch (e) {
-        console.warn("[Gemini TTS] Failed (Switching to Browser TTS):", e);
+        console.warn("[Gemini TTS] Failed:", e);
         return null;
     }
 };
@@ -195,27 +187,13 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> 
     const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words. Return JSON array [{word, translation, example}].\n${context}`;
 
     try {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
+        const data = await callGeminiFunction('generate_json', {
             model: TEXT_MODEL,
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            word: { type: Type.STRING },
-                            translation: { type: Type.STRING },
-                            example: { type: Type.STRING }
-                        }
-                    }
-                }
-            }
+            schemaType: 'ARRAY_VOCAB' // Pre-defined schema in Edge Function
         });
 
-        const rawData = JSON.parse(response.text || "[]");
+        const rawData = data.json || [];
         
         return rawData.map((item: any) => ({
             id: crypto.randomUUID(),
@@ -238,32 +216,14 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     const prompt = `Génère 3 exercices (QCM/Vrai-Faux) pour niveau ${user.preferences?.level} (${user.preferences?.targetLanguage}). Format JSON Array.`;
 
     try {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
+        const data = await callGeminiFunction('generate_json', {
             model: TEXT_MODEL,
             contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING },
-                            type: { type: Type.STRING },
-                            question: { type: Type.STRING },
-                            options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            correctAnswer: { type: Type.STRING },
-                            explanation: { type: Type.STRING }
-                        },
-                        required: ["type", "question", "correctAnswer", "explanation"]
-                    }
-                }
-            }
+            schemaType: 'ARRAY_EXERCISE' // Pre-defined schema in Edge Function
         });
         
         await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
-        return JSON.parse(response.text || "[]");
+        return data.json || [];
     } catch (e) {
         return [];
     }
@@ -292,43 +252,30 @@ export const generateRoleplayResponse = async (
     const finalPrompt = isClosing ? `${contextPrompt}\n\nÉvaluation finale` : (contextPrompt || "Start");
 
     try {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
+        const data = await callGeminiFunction('generate_json', {
             model: TEXT_MODEL,
             contents: finalPrompt,
             config: {
-                systemInstruction: sysInstruct,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        aiReply: { type: Type.STRING },
-                        correction: { type: Type.STRING },
-                        explanation: { type: Type.STRING },
-                        score: { type: Type.NUMBER },
-                        feedback: { type: Type.STRING }
-                    },
-                    required: ["aiReply"]
-                }
-            }
+                systemInstruction: sysInstruct
+            },
+            schemaType: 'OBJECT_ROLEPLAY' // Pre-defined schema in Edge Function
         });
 
         await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
-        return JSON.parse(response.text || "{}");
+        return data.json || {};
     } catch (e) {
         return { aiReply: "Problème technique." };
     }
 };
 
-// 7. GENERIC TEXT GENERATION (e.g., for translation)
+// 7. GENERIC TEXT GENERATION
 export const generateText = async (prompt: string): Promise<string> => {
     try {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
+        const data = await callGeminiFunction('generate', {
             model: TEXT_MODEL,
             contents: prompt
         });
-        return response.text || "";
+        return data.text || "";
     } catch (e) {
         console.error("generateText error:", e);
         return "";
