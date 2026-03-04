@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode, ExamResult, Certificate, SmartNotification, UserWeakness } from "../types";
 import { toast } from "../components/Toaster";
+import { syncService } from "./syncService";
 
 const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const SESSION_PREFIX = 'tm_v3_session_';
@@ -61,11 +62,8 @@ const createDefaultProfilePayload = (id: string, username: string, email: string
 
 export const storageService = {
   subscribeToSyncUpdates: (callback: SyncStatusListener) => {
-      syncListeners.push(callback);
-      callback(currentSyncStatus);
-      return () => {
-          syncListeners = syncListeners.filter(cb => cb !== callback);
-      };
+      // Delegate to robust sync service
+      return syncService.subscribe(callback);
   },
   
   subscribeToUserUpdates: (callback: UserUpdateListener) => {
@@ -414,25 +412,16 @@ export const storageService = {
       // Optimistic update for UI speed
       storageService.saveLocalUser(user); 
       
-      if (!isSupabaseConfigured()) {
-          notifySyncListeners('offline');
-          return;
-      }
-
-      notifySyncListeners('syncing');
-      try {
-          // Background Sync
+      // Queue for background sync
+      if (isSupabaseConfigured()) {
           const updates = {
+              id: user.id,
               username: user.username,
-              // Ne PAS envoyer les crédits ici pour éviter d'écraser la DB avec une vieille valeur locale
-              preferences: user.preferences
+              preferences: user.preferences,
+              updated_at: new Date().toISOString()
           };
-
-          await supabase.from('profiles').update(updates).eq('id', user.id);
-          notifySyncListeners('synced');
-      } catch (e) {
-          console.warn("Sync error:", e);
-          notifySyncListeners('error');
+          // Debounce profile updates (e.g. typing name)
+          await syncService.addToQueue('UPDATE_PROFILE', updates, `profile_${user.id}`);
       }
   },
 
@@ -516,8 +505,8 @@ export const storageService = {
 
           if (!isSupabaseConfigured()) return;
 
-          // DB Sync
-          await supabase.from('exam_results').insert([{
+          // Queue DB Sync
+          const payload = {
               id: result.id,
               user_id: result.userId,
               language: result.language,
@@ -527,7 +516,8 @@ export const storageService = {
               passed: result.passed,
               details: result.details,
               created_at: new Date(result.date).toISOString()
-          }]);
+          };
+          await syncService.addToQueue('INSERT_EXAM', payload);
       } catch (e) {
           console.warn("Exam save error:", e);
       }
@@ -586,12 +576,12 @@ export const storageService = {
 
           if (!isSupabaseConfigured()) return;
 
-          // DB Sync
-          await supabase.from('certificates').insert([{
+          // Queue DB Sync
+          const payload = {
               id: cert.id,
               user_id: cert.userId,
               user_name: cert.userName,
-              user_full_name: cert.userFullName, // New field
+              user_full_name: cert.userFullName,
               language: cert.language,
               level: cert.level,
               exam_id: cert.examId,
@@ -601,7 +591,8 @@ export const storageService = {
               score: cert.score,
               global_score: cert.globalScore,
               skill_scores: cert.skillScores
-          }]);
+          };
+          await syncService.addToQueue('INSERT_CERT', payload);
       } catch (e) {
           console.warn("Certificate save error:", e);
       }
@@ -721,22 +712,19 @@ export const storageService = {
       const local = JSON.parse(localStorage.getItem(localKey) || "[]");
       localStorage.setItem(localKey, JSON.stringify([newNotif, ...local].slice(0, 50)));
 
-      // DB Save
+      // Queue DB Save
       if (isSupabaseConfigured()) {
-          try {
-              await supabase.from('notifications').insert([{
-                  id: newNotif.id,
-                  user_id: newNotif.userId,
-                  type: newNotif.type,
-                  title: newNotif.title,
-                  message: newNotif.message,
-                  read: false,
-                  data: newNotif.data,
-                  created_at: new Date().toISOString()
-              }]);
-          } catch (e) {
-              console.warn("Notification DB insert failed", e);
-          }
+          const payload = {
+              id: newNotif.id,
+              user_id: newNotif.userId,
+              type: newNotif.type,
+              title: newNotif.title,
+              message: newNotif.message,
+              read: false,
+              data: newNotif.data,
+              created_at: new Date().toISOString()
+          };
+          await syncService.addToQueue('INSERT_NOTIF', payload);
       }
       
       return newNotif;
@@ -749,11 +737,9 @@ export const storageService = {
       const updated = local.map((n: SmartNotification) => n.id === notifId ? { ...n, read: true } : n);
       localStorage.setItem(localKey, JSON.stringify(updated));
 
-      // DB
+      // Queue DB
       if (isSupabaseConfigured()) {
-          try {
-              await supabase.from('notifications').update({ read: true }).eq('id', notifId);
-          } catch {}
+          await syncService.addToQueue('MARK_NOTIF_READ', { id: notifId });
       }
   },
 
@@ -764,11 +750,9 @@ export const storageService = {
       const updated = local.map((n: SmartNotification) => ({ ...n, read: true }));
       localStorage.setItem(localKey, JSON.stringify(updated));
 
-      // DB
+      // Queue DB
       if (isSupabaseConfigured()) {
-          try {
-              await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
-          } catch {}
+          await syncService.addToQueue('MARK_ALL_NOTIF_READ', { userId });
       }
   },
 
@@ -779,11 +763,9 @@ export const storageService = {
       const updated = local.filter((n: SmartNotification) => n.id !== notifId);
       localStorage.setItem(localKey, JSON.stringify(updated));
 
-      // DB
+      // Queue DB
       if (isSupabaseConfigured()) {
-          try {
-              await supabase.from('notifications').delete().eq('id', notifId);
-          } catch {}
+          await syncService.addToQueue('DELETE_NOTIF', { id: notifId });
       }
   },
 
@@ -932,23 +914,17 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(sessionToSave));
     
     if (isSupabaseConfigured()) {
-        notifySyncListeners('syncing');
-        try {
-            await supabase.from('learning_sessions').upsert({
-                id: sessionToSave.id,
-                user_id: sessionToSave.userId,
-                type: sessionToSave.type,
-                language: sessionToSave.language,
-                level: sessionToSave.level,
-                messages: sessionToSave.messages
-            });
-            notifySyncListeners('synced');
-        } catch (e) {
-            console.warn("Error saving session to Supabase:", e);
-            notifySyncListeners('error');
-        }
-    } else {
-        notifySyncListeners('offline');
+        const payload = {
+            id: sessionToSave.id,
+            user_id: sessionToSave.userId,
+            type: sessionToSave.type,
+            language: sessionToSave.language,
+            level: sessionToSave.level,
+            messages: sessionToSave.messages,
+            updated_at: new Date().toISOString()
+        };
+        // Debounce session saves heavily (e.g. streaming tokens)
+        await syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
     }
   },
 
