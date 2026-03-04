@@ -6,15 +6,38 @@ import { creditService, CREDIT_COSTS } from "./creditService";
 
 // --- CLIENT GEMINI DIRECT ---
 // Utilisation directe du SDK GoogleGenAI pour une stabilité et rapidité maximales.
-// Plus de proxy, plus d'erreurs 500, plus de problèmes de JWT.
+// Supporte la rotation de clés API (séparées par des virgules).
+
+const getRotatedApiKey = (): string | null => {
+    // Supporte l'injection via Vite (process.env.GEMINI_API_KEY) ou via import.meta.env
+    // @ts-ignore
+    const rawKeys = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
+    
+    if (!rawKeys) return null;
+
+    // Gestion des clés multiples (rotation)
+    const keys = rawKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+    
+    if (keys.length === 0) return null;
+    
+    // Sélection aléatoire pour répartir la charge
+    const selectedKey = keys[Math.floor(Math.random() * keys.length)];
+    
+    // Log discret (masqué)
+    console.log(`[Gemini] Using API Key ending in ...${selectedKey.slice(-4)} (Pool size: ${keys.length})`);
+    
+    return selectedKey;
+};
 
 export const getAiClient = () => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    console.log("[Gemini] Initializing client. Key present:", !!apiKey);
+    const apiKey = getRotatedApiKey();
+    
     if (!apiKey) {
-        console.error("[Gemini] Critical: Missing GEMINI_API_KEY environment variable");
-        throw new Error("Clé API Gemini manquante.");
+        console.error("[Gemini] Critical: No valid API Key found in environment variables.");
+        console.error("Please set GEMINI_API_KEY in your project settings (comma separated for rotation).");
+        throw new Error("Configuration manquante : Clé API Gemini introuvable.");
     }
+    
     return new GoogleGenAI({ apiKey });
 };
 
