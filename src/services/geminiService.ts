@@ -1,106 +1,127 @@
-/**
- * @file geminiService.ts
- * @description Service d'interface avec l'API Google Gemini via Supabase Edge Functions.
- *
- * CORRECTIONS AUDIT :
- * - callGeminiFunction supprimé → remplacé par callGeminiEdge (src/lib/edgeFunctions.ts)
- * - Parser SSE robuste : découpage sur \n\n, plus de perte de chunks
- * - AbortSignal.timeout(30s) pour éviter les streams infinis
- * - Rate limiter intégré sur chat, TTS, exercices, roleplay
- * - Crédits déduits AVANT la génération (sécurité)
- *
- * TeacherMada v1.1
- */
+import { UserProfile, ChatMessage, ExerciseItem } from "../types";
+import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
+import { storageService } from "./storageService";
+import { creditService, CREDIT_COSTS } from "./creditService";
+import { supabase, supabaseUrl, supabaseAnonKey } from "../lib/supabase";
 
-import { UserProfile, ChatMessage, ExerciseItem } from '../types';
-import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from '../constants';
-import { storageService } from './storageService';
-import { creditService, CREDIT_COSTS } from './creditService';
-import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
-import { callGeminiEdge, callEdgeFunctionWithRetry } from '../lib/edgeFunctions';
-import { rateLimiter, RATE_LIMITS } from '../lib/rateLimiter';
+// ── Constantes ────────────────────────────────────────────────────────────────
+const EDGE_FUNCTION_NAME = 'gemini-api';
 
-// ─── Modèles ─────────────────────────────────────────────────────────────────
-
-export const TEXT_MODEL  = 'gemini-2.0-flash';
+export const TEXT_MODEL = 'gemini-3-flash-preview';
+export const TEXT_MODEL_FALLBACK = 'gemini-2.0-flash';
 export const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts';
 
-// ─── 1. SUPPORT AGENT ─────────────────────────────────────────────────────────
+// ── Helper : appel Edge Function avec retry ───────────────────────────────────
+const callGeminiFunction = async (
+  action: string,
+  payload: any,
+  maxRetries: number = 2
+): Promise<any> => {
+  let lastError: Error | null = null;
 
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+        body: { action, ...payload },
+      });
+
+      if (error) {
+        const errMsg = (error as any)?.message ||
+          (error as any)?.context?.errorMessage ||
+          JSON.stringify(error);
+        console.error(`[EdgeFunction] ${EDGE_FUNCTION_NAME}/${action} — Erreur réseau:`, error);
+        lastError = new Error(errMsg);
+
+        const status = (error as any)?.status || 0;
+        if (status === 400 || status === 401 || status === 404) throw lastError;
+
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (data?.error) {
+        console.error(`[EdgeFunction] ${action} — Erreur applicative:`, data.error);
+        throw new Error(data.error);
+      }
+
+      return data;
+
+    } catch (e: any) {
+      lastError = e;
+      if (attempt < maxRetries) {
+        console.warn(`[Gemini] Tentative ${attempt + 1}/${maxRetries + 1} échouée, retry...`);
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      }
+    }
+  }
+
+  throw lastError || new Error("Erreur de communication avec l'IA");
+};
+
+// ── Helper : récupérer le token auth ─────────────────────────────────────────
+const getAuthToken = async (): Promise<string> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || supabaseAnonKey || '';
+  } catch {
+    return supabaseAnonKey || '';
+  }
+};
+
+// ── 1. SUPPORT AGENT ──────────────────────────────────────────────────────────
 export const generateSupportResponse = async (
   userQuery: string,
   context: string,
   user: UserProfile,
   history: { role: string; text: string }[]
 ): Promise<string> => {
-
   if (!storageService.canUseSupportAgent()) {
-    return '⛔ Quota journalier d\'aide atteint (100/100). Revenez demain.';
-  }
-
-  if (!rateLimiter.canCall('support')) {
-    return rateLimiter.getErrorMessage('support');
+    return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain.";
   }
 
   try {
     const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
-    const historyText = history.map(h => `${h.role}: ${h.text}`).join('\n');
-    const prompt = `${historyText}\n\nQuestion actuelle: ${userQuery}`;
+    const prompt = history.length > 0
+      ? `Historique:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion: ${userQuery}`
+      : userQuery;
 
-    const data = await callGeminiEdge<{ text?: string }>('generate', {
+    const data = await callGeminiFunction('generate', {
       model: TEXT_MODEL,
       contents: prompt,
-      config: {
-        systemInstruction,
-        maxOutputTokens: 2000,
-        temperature: 0.5,
-      },
+      config: { systemInstruction, maxOutputTokens: 2000, temperature: 0.5 },
     });
 
     storageService.incrementSupportUsage();
-    return data?.text ?? 'Je n\'ai pas de réponse pour le moment.';
-  } catch (e) {
-    console.error('[Gemini] Support error:', e);
-    return 'Désolé, je rencontre un problème technique momentané. Veuillez réessayer.';
+    return data?.text || "Je n'ai pas de réponse pour le moment.";
+
+  } catch (e: any) {
+    console.error("[Gemini] Support error:", e.message);
+    return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer.";
   }
 };
 
-// ─── 2. MAIN CHAT (STREAMING ROBUSTE) ─────────────────────────────────────────
-
-/**
- * Stream SSE corrigé — CORRECTIONS AUDIT :
- * - Découpage sur \n\n (événements SSE complets) au lieu de \n (peut couper des chunks)
- * - AbortSignal.timeout(30_000) pour éviter les streams orphelins
- * - reader.cancel() dans finally pour libérer la connexion
- * - Crédits vérifiés localement AVANT l'appel (double vérification côté serveur dans l'Edge Function)
- */
+// ── 2. CHAT PRINCIPAL (STREAMING) ─────────────────────────────────────────────
 export async function* sendMessageStream(
   message: string,
   user: UserProfile,
   history: ChatMessage[]
-): AsyncGenerator<string> {
-
+) {
   if (!user.preferences) {
-    yield '⚠️ Profil incomplet. Veuillez configurer vos préférences.';
+    yield "⚠️ Profil incomplet. Veuillez configurer vos préférences.";
     return;
   }
 
-  // Vérification crédits locale (pré-filtre rapide)
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.LESSON))) {
-    yield '⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer.';
-    return;
-  }
-
-  // Rate limiting
-  if (!rateLimiter.canCall('chat')) {
-    yield rateLimiter.getErrorMessage('chat');
+    yield "⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer.";
     return;
   }
 
   try {
-    console.info('[Gemini] Stream démarré. Modèle:', TEXT_MODEL);
+    console.log("[Gemini] Stream démarré. Modèle:", TEXT_MODEL);
 
-    // Limiter l'historique à 15 messages pour réduire la latence
     const recentHistory = history.slice(-15);
     const contextPrompt = recentHistory
       .filter(msg => msg.text?.trim())
@@ -111,20 +132,17 @@ export async function* sendMessageStream(
       ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}`
       : message;
 
-    // Récupérer le token JWT pour l'autorisation
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token ?? supabaseAnonKey;
+    const token = await getAuthToken();
 
-    // AbortController avec timeout 30s
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/gemini-api`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/${EDGE_FUNCTION_NAME}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
-        'apikey': supabaseAnonKey,
+        'apikey': supabaseAnonKey || '',
         'Accept': 'text/event-stream',
       },
       body: JSON.stringify({
@@ -132,7 +150,7 @@ export async function* sendMessageStream(
         model: TEXT_MODEL,
         contents: finalMessage,
         config: {
-          systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
+          systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
           temperature: 0.7,
           maxOutputTokens: 8192,
         },
@@ -143,15 +161,16 @@ export async function* sendMessageStream(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Edge Function erreur (${response.status}): ${errText}`);
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Edge Function Stream Error (${response.status}): ${errText.slice(0, 200)}`);
     }
 
     const reader = response.body?.getReader();
-    if (!reader) throw new Error('Stream non disponible');
+    if (!reader) throw new Error("Pas de stream disponible");
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let hasYieldedText = false;
 
     try {
       while (true) {
@@ -159,180 +178,175 @@ export async function* sendMessageStream(
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-
-        // ✅ CORRECTION : Découper sur \n\n (événements SSE complets)
-        // Un événement SSE se termine toujours par \n\n
         const events = buffer.split('\n\n');
-        buffer = events.pop() ?? ''; // Conserver le fragment incomplet
+        buffer = events.pop() ?? '';
 
         for (const event of events) {
-          // Trouver la ligne "data: ..."
           const dataLine = event.split('\n').find(l => l.startsWith('data: '));
           if (!dataLine) continue;
 
           const raw = dataLine.slice(6).trim();
-          if (raw === '[DONE]') {
-            // Déduire les crédits après streaming réussi
-            await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
-            return;
-          }
+          if (raw === '[DONE]') continue;
 
           try {
-            const json = JSON.parse(raw);
-            // Format Gemini standard
-            const text = json.candidates?.[0]?.content?.parts?.[0]?.text
-              ?? json.text  // Format proxy Edge Function
-              ?? null;
-            if (text) yield text;
+            const parsed = JSON.parse(raw);
+            if (parsed.error) throw new Error(parsed.error);
 
-            // Erreur retournée dans le stream
-            if (json.error) throw new Error(json.error);
-          } catch (parseError) {
-            // Chunk partiel ou texte brut — ignorer les erreurs de parse silencieusement
-            if (raw && raw !== '[DONE]' && !raw.startsWith('{')) {
-              yield raw; // Texte brut (rare mais possible)
+            const chunk = parsed.text ||
+              parsed.candidates?.[0]?.content?.parts?.[0]?.text ||
+              parsed.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('');
+
+            if (chunk) {
+              yield chunk;
+              hasYieldedText = true;
+            }
+          } catch (parseErr: any) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) {
+              throw parseErr;
             }
           }
         }
       }
-
-      // Flush du buffer restant
-      if (buffer.trim()) {
-        const dataLine = buffer.split('\n').find(l => l.startsWith('data: '));
-        if (dataLine) {
-          const raw = dataLine.slice(6).trim();
-          if (raw && raw !== '[DONE]') {
-            try {
-              const json = JSON.parse(raw);
-              const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? json.text;
-              if (text) yield text;
-            } catch { /* ignoré */ }
-          }
-        }
-      }
-
     } finally {
-      reader.cancel(); // ✅ Toujours libérer le reader
+      reader.cancel().catch(() => {});
     }
 
-    // Déduire les crédits si le stream s'est terminé normalement (sans [DONE])
+    if (!hasYieldedText) {
+      yield "⚠️ Aucune réponse reçue. Veuillez réessayer.";
+      return;
+    }
+
+    console.log("[Gemini] Stream terminé avec succès.");
     await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
-    console.info('[Gemini] Stream terminé avec succès.');
 
   } catch (e: any) {
-    if (e?.name === 'AbortError') {
-      yield '⏱️ Délai d\'attente dépassé. Veuillez réessayer.';
+    if (e.name === 'AbortError') {
+      yield "⏱️ Le serveur met trop de temps à répondre. Veuillez réessayer.";
     } else {
-      console.error('[Gemini] Erreur stream:', e);
-      yield '⚠️ Le service est temporairement indisponible. Veuillez réessayer dans un instant.';
+      console.error("[Gemini] Stream exception:", e.message);
+      yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer dans un instant.";
     }
   }
 }
 
-// ─── 3. TEXT-TO-SPEECH ────────────────────────────────────────────────────────
-
+// ── 3. TTS ────────────────────────────────────────────────────────────────────
 export const generateSpeech = async (
   text: string,
-  voiceName = 'Kore',
-  cost = CREDIT_COSTS.AUDIO_MESSAGE
+  voiceName: string = 'Kore',
+  cost: number = CREDIT_COSTS.AUDIO_MESSAGE
 ): Promise<ArrayBuffer | null> => {
-
   const user = await storageService.getCurrentUser();
-  if (!user) return null;
-
-  if (!(await creditService.checkBalance(user.id, cost))) return null;
-
-  if (!rateLimiter.canCall('tts')) {
-    console.warn('[TTS] Rate limit atteint');
-    return null;
-  }
+  if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
   try {
-    const data = await callGeminiEdge<{ audioBase64?: string }>('tts', {
-      text: text.slice(0, 4096), // Limite de sécurité
+    console.log(`[Gemini TTS] Génération voix "${voiceName}"...`);
+
+    // ✅ action 'tts' (correspondance exacte avec l'Edge Function)
+    const data = await callGeminiFunction('tts', {
+      text,
       voiceName,
+      model: AUDIO_MODEL,
     });
 
-    if (!data?.audioBase64) return null;
+    if (!data?.audioBase64) {
+      console.warn("[Gemini TTS] Pas de données audio.");
+      return null;
+    }
 
     await creditService.deduct(user.id, cost);
 
-    // Décoder Base64 → ArrayBuffer
-    const binary = atob(data.audioBase64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
+    const binaryString = atob(data.audioBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
 
-  } catch (e) {
-    console.error('[TTS] Erreur:', e);
+    console.log("[Gemini TTS] Audio généré avec succès.");
+    return bytes.buffer as ArrayBuffer;
+
+  } catch (e: any) {
+    console.warn("[Gemini TTS] Échec:", e.message);
     return null;
   }
 };
 
-// ─── 4. PRONONCIATION ─────────────────────────────────────────────────────────
+// ── 4. EXTRACTION VOCABULAIRE ─────────────────────────────────────────────────
+export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> => {
+  const user = await storageService.getCurrentUser();
+  if (!user) return [];
 
-export const generatePronunciation = async (text: string, language: string): Promise<ArrayBuffer | null> => {
-  return generateSpeech(
-    text,
-    language.toLowerCase().includes('angl') ? 'Journey' : 'Kore',
-    CREDIT_COSTS.AUDIO_PRONUNCIATION
-  );
-};
-
-// ─── 5. EXERCICES ─────────────────────────────────────────────────────────────
-
-export const generateExerciseFromHistory = async (
-  history: ChatMessage[],
-  user: UserProfile
-): Promise<ExerciseItem[]> => {
-
-  if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.EXERCISE))) return [];
-  if (!rateLimiter.canCall('exercise')) return [];
-
-  const prompt = `Génère 3 exercices (QCM/Vrai-Faux) pour niveau ${user.preferences?.level} (${user.preferences?.targetLanguage}). Format JSON Array.`;
+  const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
+  const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words. Return a JSON array with objects: word, translation, example.\n\nConversation:\n${context}`;
 
   try {
-    const data = await callEdgeFunctionWithRetry<{ json?: ExerciseItem[] }>(
-      'gemini-api', 'generate_json',
-      { model: TEXT_MODEL, contents: prompt, schemaType: 'ARRAY_EXERCISE' }
-    );
+    const data = await callGeminiFunction('generate_json', {
+      model: TEXT_MODEL,
+      contents: prompt,
+      schemaType: 'ARRAY_VOCAB',
+    });
 
-    await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
-    return data?.json ?? [];
+    return (data?.json || []).map((item: any) => ({
+      id: crypto.randomUUID(),
+      word: item.word || '',
+      translation: item.translation || '',
+      example: item.example || '',
+      mastered: false,
+      addedAt: Date.now(),
+    }));
   } catch (e) {
-    console.error('[Gemini] generateExercise error:', e);
     return [];
   }
 };
 
-// ─── 6. ROLEPLAY ──────────────────────────────────────────────────────────────
+// ── 5. EXERCICES ──────────────────────────────────────────────────────────────
+export const generateExerciseFromHistory = async (
+  history: ChatMessage[],
+  user: UserProfile
+): Promise<ExerciseItem[]> => {
+  if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.EXERCISE))) return [];
 
+  const context = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
+  const prompt = `Génère 3 exercices variés (QCM ou Vrai/Faux) adaptés au niveau ${user.preferences?.level} en ${user.preferences?.targetLanguage}. Basé sur:\n${context}`;
+
+  try {
+    const data = await callGeminiFunction('generate_json', {
+      model: TEXT_MODEL,
+      contents: prompt,
+      schemaType: 'ARRAY_EXERCISE',
+    });
+
+    await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
+    return data?.json || [];
+  } catch (e) {
+    return [];
+  }
+};
+
+// ── 6. ROLEPLAY ───────────────────────────────────────────────────────────────
 export const generateRoleplayResponse = async (
   history: ChatMessage[],
   scenarioPrompt: string,
   user: UserProfile,
-  isClosing = false,
-  _isInitial = false
+  isClosing: boolean = false,
+  _isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
-
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE))) {
-    return { aiReply: '⚠️ Crédits insuffisants.' };
+    return { aiReply: "⚠️ Crédits insuffisants." };
   }
 
-  if (!rateLimiter.canCall('roleplay')) {
-    return { aiReply: rateLimiter.getErrorMessage('roleplay') };
-  }
+  const sysInstruct = `Tu es un partenaire de jeu de rôle en ${user.preferences?.targetLanguage} (niveau ${user.preferences?.level}). Scénario: ${scenarioPrompt}. Réponds en JSON avec: aiReply, correction (si faute), explanation, score (0-100).`;
 
-  const sysInstruct = `Partenaire de jeu de rôle (${user.preferences?.targetLanguage}, ${user.preferences?.level}). Scénario: ${scenarioPrompt}.`;
   const contextPrompt = history
-    .filter(m => m.text?.trim())
+    .filter(msg => msg.text?.trim())
     .map(m => `${m.role}: ${m.text}`)
     .join('\n');
 
-  const finalPrompt = isClosing ? `${contextPrompt}\n\nÉvaluation finale` : (contextPrompt || 'Start');
+  const finalPrompt = isClosing
+    ? `${contextPrompt}\n\nFais l'évaluation finale de la conversation.`
+    : (contextPrompt || "Commence le jeu de rôle.");
 
   try {
-    const data = await callGeminiEdge<{ json?: any }>('generate_json', {
+    const data = await callGeminiFunction('generate_json', {
       model: TEXT_MODEL,
       contents: finalPrompt,
       config: { systemInstruction: sysInstruct },
@@ -340,49 +354,25 @@ export const generateRoleplayResponse = async (
     });
 
     await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
-    return data?.json ?? { aiReply: 'Problème technique.' };
+    return data?.json || { aiReply: "Continuons la conversation." };
   } catch (e) {
-    console.error('[Gemini] Roleplay error:', e);
-    return { aiReply: 'Problème technique. Réessayez.' };
+    return { aiReply: "Problème technique. Veuillez réessayer." };
   }
 };
 
-// ─── 7. GÉNÉRATION DE TEXTE GÉNÉRIQUE ─────────────────────────────────────────
-
-export const generateText = async (prompt: string, maxTokens = 4096): Promise<string> => {
+// ── 7. GÉNÉRATION TEXTE GÉNÉRIQUE ─────────────────────────────────────────────
+export const generateText = async (
+  prompt: string,
+  model?: string
+): Promise<string> => {
   try {
-    const data = await callGeminiEdge<{ text?: string }>('generate', {
-      model: TEXT_MODEL,
+    const data = await callGeminiFunction('generate', {
+      model: model || TEXT_MODEL,
       contents: prompt,
-      config: { maxOutputTokens: maxTokens },
     });
-    return data?.text ?? '';
-  } catch (e) {
-    console.error('[Gemini] generateText error:', e);
-    return '';
-  }
-};
-
-// ─── 8. EXTRACTION VOCABULAIRE ────────────────────────────────────────────────
-
-export const extractVocabularyFromMessage = async (
-  text: string,
-  targetLanguage: string,
-  explanationLanguage: string
-): Promise<any[]> => {
-  const prompt = `Extrais le vocabulaire important du texte suivant en ${targetLanguage}.
-Retourne un JSON array d'objets: [{word, translation, example, level}].
-Texte: "${text.slice(0, 500)}"
-Langue d'explication: ${explanationLanguage}`;
-
-  try {
-    const data = await callGeminiEdge<{ json?: any[] }>('generate_json', {
-      model: TEXT_MODEL,
-      contents: prompt,
-      schemaType: 'ARRAY_VOCABULARY',
-    });
-    return data?.json ?? [];
-  } catch {
-    return [];
+    return data?.text || "";
+  } catch (e: any) {
+    console.error("[Gemini] generateText error:", e.message);
+    return "";
   }
 };
