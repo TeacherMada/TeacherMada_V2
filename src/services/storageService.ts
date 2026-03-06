@@ -89,22 +89,22 @@ export const storageService = {
                   filter: `id=eq.${userId}`
               },
               (payload) => {
-                  console.log('[Realtime] Profile updated:', payload);
                   if (payload.new) {
                       const mappedUser = mapProfile(payload.new);
-                      // Update local storage and notify listeners
-                      // We use saveLocalUser to trigger the event bus, but we must be careful not to overwrite 
-                      // local transient state if necessary. However, DB is source of truth.
                       const currentUser = storageService.getLocalUser();
                       
-                      // Merge strategy: Trust DB for Credits, XP, Stats. 
-                      // For Preferences/Memory, we might want to be careful if user is currently editing.
-                      // For now, we trust DB as the "server authority".
-                      
-                      // Preserve local session-like state if needed? 
-                      // Actually, for credits/xp (the most important real-time aspect), we just want to update those.
-                      
+                      // OPTIMIZATION: Deep compare to avoid redundant updates/loops
+                      // We only care about credits, xp, and critical status changes from server
                       if (currentUser) {
+                          if (
+                              currentUser.credits === mappedUser.credits &&
+                              currentUser.isSuspended === mappedUser.isSuspended &&
+                              JSON.stringify(currentUser.preferences) === JSON.stringify(mappedUser.preferences)
+                          ) {
+                              // No meaningful change, skip
+                              return;
+                          }
+
                           const merged = {
                               ...currentUser,
                               ...mappedUser,
@@ -114,7 +114,7 @@ export const storageService = {
                                   : currentUser.preferences
                           };
                           storageService.saveLocalUser(merged);
-                          toast.info("Données mises à jour depuis le serveur.");
+                          console.log('[Realtime] Profile updated from server');
                       } else {
                           storageService.saveLocalUser(mappedUser);
                       }
@@ -838,20 +838,16 @@ export const storageService = {
     const localData = localStorage.getItem(key);
     let localSession: LearningSession | null = localData ? JSON.parse(localData) : null;
 
-    // 2. Try Supabase with Timeout (3s) to ensure fluidity
+    // 2. Background Sync with Supabase (Non-blocking)
     if (isSupabaseConfigured()) {
-        try {
-            const fetchPromise = supabase.from('learning_sessions').select('*').eq('id', key).single();
-            
-            // Timeout de 10s pour assurer la robustesse (au lieu de 3s)
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Supabase timeout')), 10000)
-            );
-
-            const { data } = await Promise.race([fetchPromise, timeoutPromise]) as any;
-
+        supabase.from('learning_sessions').select('*').eq('id', key).single()
+        .then(({ data, error }) => {
+            if (error) {
+                console.log("Background sync info:", error.message);
+                return;
+            }
             if (data) {
-                const session: LearningSession = {
+                const remoteSession: LearningSession = {
                     id: data.id,
                     userId: data.user_id,
                     type: data.type as any,
@@ -861,39 +857,19 @@ export const storageService = {
                     updatedAt: new Date(data.updated_at).getTime()
                 };
                 
-                // Conflict Resolution: Keep local if newer (unsynced changes)
-                if (localSession && localSession.updatedAt > session.updatedAt) {
-                     console.log("Local session is newer, keeping local and syncing up.");
-                     storageService.saveSession(localSession); // Background sync
-                     return localSession;
+                // If remote is newer, update local
+                if (!localSession || remoteSession.updatedAt > localSession.updatedAt) {
+                    localStorage.setItem(key, JSON.stringify(remoteSession));
+                    // Dispatch event for UI updates if needed
+                    window.dispatchEvent(new CustomEvent('tm_session_updated', { detail: remoteSession }));
                 }
-
-                localStorage.setItem(key, JSON.stringify(session)); // Sync local
-                return session;
             }
-        } catch (e) {
-            // Log as info/warn but don't alarm user unless critical
-            console.log("Supabase fetch failed or timed out (using local fallback):", e);
-        }
+        });
     }
 
-    // 3. Return Local if exists (Offline or Timeout Fallback)
-    if (localSession) {
-        // Sync to Supabase in background if we have local data but server missed it
-        if (isSupabaseConfigured()) {
-            supabase.from('learning_sessions').upsert({
-                id: key,
-                user_id: userId,
-                type: 'lesson', 
-                language: cleanLang,
-                level: prefs.level,
-                messages: localSession.messages
-            }).then();
-        }
-        return localSession;
-    }
+    if (localSession) return localSession;
 
-    // 4. Create New
+    // 3. Create New if neither exists
     const newSession: LearningSession = { 
         id: key, 
         userId,
@@ -908,24 +884,28 @@ export const storageService = {
   },
 
   saveSession: async (session: LearningSession) => {
-    // Limit messages to 30 to prevent DB bloat
-    const limitedMessages = session.messages.slice(-30);
-    const sessionToSave = { ...session, messages: limitedMessages, updatedAt: Date.now() };
+    session.updatedAt = Date.now();
     
-    localStorage.setItem(session.id, JSON.stringify(sessionToSave));
+    // Intelligent Cache Management: Keep only last 50 messages to prevent DB bloat
+    if (session.messages.length > 50) {
+        session.messages = [
+            session.messages[0],
+            ...session.messages.slice(-49)
+        ];
+    }
+
+    localStorage.setItem(session.id, JSON.stringify(session));
     
     if (isSupabaseConfigured()) {
-        const payload = {
-            id: sessionToSave.id,
-            user_id: sessionToSave.userId,
-            type: sessionToSave.type,
-            language: sessionToSave.language,
-            level: sessionToSave.level,
-            messages: sessionToSave.messages,
-            updated_at: new Date().toISOString()
-        };
-        // Debounce session saves heavily (e.g. streaming tokens)
-        await syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+        syncService.addToQueue('UPSERT_SESSION', {
+            id: session.id,
+            user_id: session.userId,
+            type: session.type,
+            language: session.language,
+            level: session.level,
+            messages: session.messages,
+            updated_at: new Date(session.updatedAt).toISOString()
+        }, `session_${session.id}`);
     }
   },
 

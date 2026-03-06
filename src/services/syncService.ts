@@ -69,7 +69,11 @@ class SyncService {
         // Debounce logic: If a pending operation exists with the same key, replace it or delay
         if (debounceKey) {
             // Remove existing pending op with same key to avoid stale overwrites in queue
-            this.queue = this.queue.filter(op => op.id !== debounceKey);
+            // CRITICAL FIX: Do not remove the item at index 0 if it is currently being processed
+            this.queue = this.queue.filter((op, index) => {
+                if (this.isProcessing && index === 0) return true; // Keep currently processing item
+                return op.id !== debounceKey;
+            });
             
             // Clear existing timeout
             if (this.debouncers.has(debounceKey)) {
@@ -117,43 +121,41 @@ class SyncService {
         this.isProcessing = true;
         this.notifyListeners('syncing');
 
-        // Process one by one
         try {
-            const currentOp = this.queue[0];
-            const success = await this.executeOperation(currentOp);
-            
-            if (success) {
-                this.queue.shift(); // Remove successful op
-                this.saveQueue();
-                this.isProcessing = false;
-                
-                if (this.queue.length > 0) {
-                    // Continue processing next item immediately
-                    this.processQueue(); 
-                } else {
-                    this.notifyListeners('synced');
+            while (this.queue.length > 0) {
+                // Check connectivity again in the loop
+                if (!navigator.onLine) {
+                    this.notifyListeners('offline');
+                    break;
                 }
-            } else {
-                // Handle failure (retry logic)
-                currentOp.retryCount++;
-                if (currentOp.retryCount >= MAX_RETRIES) {
-                    console.error(`Sync operation ${currentOp.id} failed permanently after ${MAX_RETRIES} attempts.`);
-                    this.queue.shift(); // Drop it to unblock queue
-                } else {
-                    // Move to end of queue or delay? 
-                    // Delay before retrying same op
-                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, currentOp.retryCount)));
-                }
-                this.saveQueue();
-                this.isProcessing = false;
+
+                const currentOp = this.queue[0];
+                const success = await this.executeOperation(currentOp);
                 
-                // Retry loop continues if we didn't drop it, or moves to next
-                if (this.queue.length > 0) this.processQueue();
+                if (success) {
+                    this.queue.shift(); // Remove successful op
+                    this.saveQueue();
+                } else {
+                    // Handle failure (retry logic)
+                    currentOp.retryCount++;
+                    if (currentOp.retryCount >= MAX_RETRIES) {
+                        console.error(`Sync operation ${currentOp.id} failed permanently after ${MAX_RETRIES} attempts.`);
+                        this.queue.shift(); // Drop it to unblock queue
+                    } else {
+                        // Delay before retrying same op
+                        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, currentOp.retryCount)));
+                    }
+                    this.saveQueue();
+                }
             }
         } catch (e) {
             console.error("Sync processing error:", e);
             this.notifyListeners('error');
+        } finally {
             this.isProcessing = false;
+            if (this.queue.length === 0) {
+                this.notifyListeners('synced');
+            }
         }
     }
 

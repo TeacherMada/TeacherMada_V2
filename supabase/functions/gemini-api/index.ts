@@ -50,13 +50,23 @@ Deno.serve(async (req) => {
 
     if (action === 'generate') {
       const targetModel = model || 'gemini-2.0-flash'; // Fallback to stable model
+      
+      // Extract systemInstruction from config if present
+      const { systemInstruction, ...genConfig } = config || {};
+
+      const body: any = {
+          contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+          generationConfig: genConfig
+      };
+
+      if (systemInstruction) {
+          body.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+
       const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
-          generationConfig: config
-        })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {
@@ -76,13 +86,23 @@ Deno.serve(async (req) => {
 
     if (action === 'generate_stream') {
         const targetModel = model || 'gemini-2.0-flash';
+        
+        // Extract systemInstruction from config if present
+        const { systemInstruction, ...genConfig } = config || {};
+
+        const body: any = {
+            contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+            generationConfig: genConfig
+        };
+
+        if (systemInstruction) {
+            body.systemInstruction = { parts: [{ text: systemInstruction }] };
+        }
+
         const response = await fetch(`${BASE_URL}/${targetModel}:streamGenerateContent?alt=sse&key=${selectedKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
-                generationConfig: config
-            })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -123,7 +143,9 @@ Deno.serve(async (req) => {
                                     const data = JSON.parse(jsonStr);
                                     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
                                     if (text) {
-                                        controller.enqueue(encoder.encode(text));
+                                        // Send as SSE data
+                                        const sseData = `data: ${JSON.stringify({ text })}\n\n`;
+                                        controller.enqueue(encoder.encode(sseData));
                                     }
                                 } catch (e) {
                                     // Ignore parse errors
@@ -149,7 +171,7 @@ Deno.serve(async (req) => {
         
         // Pre-defined schemas
         if (schemaType === 'ARRAY_VOCAB') {
-             schema = {
+            schema = {
                 type: 'ARRAY',
                 items: {
                     type: 'OBJECT',
@@ -159,7 +181,7 @@ Deno.serve(async (req) => {
                         example: { type: 'STRING' }
                     }
                 }
-            }
+            };
         } else if (schemaType === 'ARRAY_EXERCISE') {
             schema = {
                 type: 'ARRAY',
@@ -175,7 +197,7 @@ Deno.serve(async (req) => {
                     },
                     required: ["type", "question", "correctAnswer", "explanation"]
                 }
-            }
+            };
         } else if (schemaType === 'OBJECT_ROLEPLAY') {
             schema = {
                 type: 'OBJECT',
@@ -187,20 +209,29 @@ Deno.serve(async (req) => {
                     feedback: { type: 'STRING' }
                 },
                 required: ["aiReply"]
+            };
+        }
+
+        // Extract systemInstruction from config if present
+        const { systemInstruction, ...genConfig } = config || {};
+
+        const body: any = {
+            contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
+            generationConfig: {
+                ...genConfig,
+                responseMimeType: 'application/json',
+                responseSchema: schema
             }
+        };
+
+        if (systemInstruction) {
+            body.systemInstruction = { parts: [{ text: systemInstruction }] };
         }
 
         const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: typeof contents === 'string' ? [{ parts: [{ text: contents }] }] : contents,
-                generationConfig: {
-                    ...config,
-                    responseMimeType: 'application/json',
-                    responseSchema: schema
-                }
-            })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -221,21 +252,25 @@ Deno.serve(async (req) => {
     if (action === 'generate_speech') {
         const targetModel = model || 'gemini-2.0-flash-exp'; // TTS model
         
-        // Try standard generateContent first (works for some models)
+        // Extract systemInstruction from config if present (though unlikely for TTS)
+        const { systemInstruction, ...genConfig } = config || {};
+
+        const body: any = {
+            contents: [{ parts: [{ text: text }] }],
+            generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
+                    }
+                }
+            }
+        };
+
         const response = await fetch(`${BASE_URL}/${targetModel}:generateContent?key=${selectedKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: text }] }],
-                generationConfig: {
-                    responseModalities: ['AUDIO'],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
-                        }
-                    }
-                }
-            })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {

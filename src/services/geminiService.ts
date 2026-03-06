@@ -2,7 +2,7 @@ import { UserProfile, ChatMessage, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseUrl, supabaseAnonKey } from "../lib/supabase";
 
 // --- CLIENT GEMINI VIA SUPABASE EDGE FUNCTION ---
 // Utilisation de la Edge Function pour sécuriser les clés API et gérer la rotation côté serveur.
@@ -88,18 +88,30 @@ export async function* sendMessageStream(
   try {
       console.log("[Gemini] Stream started via Edge Function. Model:", TEXT_MODEL);
 
+      // OPTIMIZATION: Limit history to last 15 messages to reduce latency and token usage
+      const recentHistory = history.slice(-15);
+
       // Format history
-      const contextPrompt = history
+      const contextPrompt = recentHistory
         .filter(msg => msg.text && msg.text.trim().length > 0)
         .map(msg => `${msg.role === 'user' ? 'Élève' : 'Professeur'}: ${msg.text}`)
         .join('\n\n');
 
       const finalMessage = contextPrompt ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}` : message;
-      console.log("[Gemini] Sending message:", finalMessage.substring(0, 100) + "...");
-
-      // Call Edge Function with streaming enabled
-      const response = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-          body: {
+      
+      // Call Edge Function with streaming enabled using standard fetch
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || supabaseAnonKey;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/${EDGE_FUNCTION_NAME}`, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              'apikey': supabaseAnonKey,
+              'Accept': 'text/event-stream'
+          },
+          body: JSON.stringify({
               action: 'generate_stream',
               model: TEXT_MODEL,
               contents: finalMessage,
@@ -108,35 +120,55 @@ export async function* sendMessageStream(
                   temperature: 0.7,
                   maxOutputTokens: 8192,
               }
-          },
-          headers: {
-              Accept: 'text/event-stream',
-          },
+          })
       });
 
-      if (response.error) throw response.error;
+      if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Edge Function Stream Error (${response.status}): ${errText}`);
+      }
 
-      // Handle Streaming Response
-      if (response.data instanceof Blob) {
-           // If response is a Blob (sometimes happens with fetch polyfills), read it
-           const text = await response.data.text();
-           yield text;
-      } else if (response.data && response.data.body) {
-          // Real streaming
-          const reader = response.data.body.getReader();
-          const decoder = new TextDecoder();
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No stream reader available");
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-          while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              // Parse SSE format if needed, or just raw text depending on function implementation
-              // Assuming function returns raw text chunks for simplicity or SSE data: lines
-              yield chunk;
+      while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              if (trimmedLine.startsWith('data: ')) {
+                  const dataStr = trimmedLine.slice(6).trim();
+                  if (dataStr === '[DONE]') continue;
+                  try {
+                      const data = JSON.parse(dataStr);
+                      // Handle both standard Gemini SSE and our Edge Function proxy format
+                      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || data.text;
+                      if (text) yield text;
+                  } catch (e) {
+                      // ignore parse error for incomplete chunks
+                  }
+              } else if (!trimmedLine.startsWith(':')) {
+                  // Fallback: if the edge function sent raw text instead of SSE
+                  try {
+                      const data = JSON.parse(trimmedLine);
+                      if (data.error) throw new Error(data.error);
+                      if (data.text) yield data.text;
+                  } catch(e) {
+                      // If it's just raw text chunk
+                      yield trimmedLine;
+                  }
+              }
           }
-      } else {
-          // Fallback for non-streaming response
-          yield response.data.text || "";
       }
       
       console.log("[Gemini] Stream completed successfully.");

@@ -19,7 +19,6 @@ import { supabase } from './lib/supabase';
 import { generateExerciseFromHistory } from './services/geminiService'; // Added
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
-import { LanguageProvider } from './contexts/LanguageContext';
 
 import DebugConsole from './components/DebugConsole';
 
@@ -45,9 +44,7 @@ const GUEST_USER: UserProfile = {
 
 const App: React.FC = () => {
   return (
-    <LanguageProvider>
-      <AppContent />
-    </LanguageProvider>
+    <AppContent />
   );
 };
 
@@ -69,36 +66,31 @@ const AppContent: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
-  // Load User & Subscribe to Updates
+  // 1. INITIALIZATION & AUTH LISTENER
   useEffect(() => {
     // Check URL for verification
     const path = window.location.pathname;
     if (path.startsWith('/verify/')) {
         const certId = path.split('/verify/')[1];
-        if (certId) {
-            setVerifyCertId(certId);
-        }
+        if (certId) setVerifyCertId(certId);
     }
 
     const init = async () => {
-        console.log("App initializing...");
-        
-        // 1. Optimistic load from local storage for instant UI
+        // Optimistic load
         const localUser = storageService.getLocalUser();
         if (localUser) {
             setUser(localUser);
-            if (localUser.preferences && localUser.preferences.targetLanguage) {
+            if (localUser.preferences?.targetLanguage) {
                 const localSession = await storageService.getOrCreateSession(localUser.id, localUser.preferences);
                 setCurrentSession(localSession);
             }
         }
 
-        // 2. Fetch from remote to ensure data is fresh (credits, etc.)
+        // Remote fetch (background)
         const curr = await storageService.getCurrentUser();
         if (curr) {
             setUser(curr);
-            // AUTO-RESUME SESSION: Si l'utilisateur a déjà un cours en cours, on le reprend direct
-            if (curr.preferences && curr.preferences.targetLanguage) {
+            if (curr.preferences?.targetLanguage) {
                 const session = await storageService.getOrCreateSession(curr.id, curr.preferences);
                 setCurrentSession(session);
             }
@@ -106,20 +98,17 @@ const AppContent: React.FC = () => {
     };
     init();
     
-    // Auth State Listener (Global Session Management)
+    // Auth State Listener
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(`[Auth] State Change: ${event}`);
-        
         if (event === 'SIGNED_OUT') {
             setUser(null);
             setCurrentSession(null);
             setShowDashboard(false);
             setShowAdmin(false);
             setActiveMode('chat');
-            storageService.logout(); // Ensure local cleanup
+            storageService.logout();
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             if (session?.user) {
-                // Refresh user data on sign-in or token refresh
                 const updated = await storageService.getUserById(session.user.id);
                 if (updated) {
                     setUser(updated);
@@ -128,8 +117,17 @@ const AppContent: React.FC = () => {
             }
         }
     });
-    
-    // Global Event Listener for User Updates (Credits, Stats, etc.)
+
+    return () => {
+        authListener.unsubscribe();
+    };
+  }, []);
+
+  // 2. REAL-TIME SYNC SUBSCRIPTIONS
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Local Updates (from other tabs or components)
     const unsubscribeLocal = storageService.subscribeToUserUpdates((updatedUser) => {
         setUser((currentUser) => {
             // FIX: Sticky Preferences Protection
@@ -142,61 +140,47 @@ const AppContent: React.FC = () => {
         });
     });
 
-    // Real-time Remote Subscription (Credits, XP, etc.)
-    let unsubscribeRemote = () => {};
-    if (user?.id) {
-        unsubscribeRemote = storageService.subscribeToRemoteChanges(user.id);
-    }
+    // Remote Updates (from Supabase Realtime)
+    const unsubscribeRemote = storageService.subscribeToRemoteChanges(user.id);
 
     return () => {
         unsubscribeLocal();
-        authListener.unsubscribe();
         unsubscribeRemote();
     };
-  }, [user?.id]); // Dependency on user.id to re-subscribe when user changes
+  }, [user?.id]);
 
-  // Theme logic
+  // 3. THEME & OFFLINE HANDLERS
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
-  // Offline Detection
   useEffect(() => {
       const handleOffline = () => toast.error("Vous êtes hors ligne. Vérifiez votre connexion.");
       const handleOnline = () => toast.success("Connexion rétablie !");
       
       window.addEventListener('offline', handleOffline);
       window.addEventListener('online', handleOnline);
-      
       return () => {
           window.removeEventListener('offline', handleOffline);
           window.removeEventListener('online', handleOnline);
       };
   }, []);
 
-  // Refresh User Data on Focus
+  // 4. FOCUS REFRESH
   useEffect(() => {
       const handleFocus = async () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
-              if (updated) {
-                  if (user.preferences && (!updated.preferences || !updated.preferences.targetLanguage)) {
-                      return;
-                  }
-                  if (
-                      updated.credits !== user.credits || 
-                      updated.isSuspended !== user.isSuspended
-                  ) {
-                      setUser(updated);
-                      if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
-                  }
+              if (updated && (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended)) {
+                  setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
+                  if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
               }
           }
       };
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
-  }, [user]);
+  }, [user?.id, user?.credits, user?.isSuspended]); // Optimized dependencies
 
   const notify = (msg: string, type: string = 'info') => {
     if (type === 'error') toast.error(msg);
@@ -330,19 +314,10 @@ const AppContent: React.FC = () => {
     
     setIsResuming(true);
     
-    // Timeout de 15 secondes pour laisser le temps au service de fallback (qui a un timeout de 10s)
-    const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout")), 15000)
-    );
-
     try {
         console.log("Resuming course for user:", user.id);
         
-        // Course contre la montre : chargement vs timeout
-        const session = await Promise.race([
-            storageService.getOrCreateSession(user.id, user.preferences),
-            timeoutPromise
-        ]) as any; // Type assertion pour éviter les soucis de typage avec le timeout
+        const session = await storageService.getOrCreateSession(user.id, user.preferences);
 
         if (session && session.id) {
             setCurrentSession(session);
@@ -352,7 +327,7 @@ const AppContent: React.FC = () => {
         }
     } catch (error) {
         console.error("Error resuming course:", error);
-        toast.error("Le chargement prend plus de temps que prévu. Vérifiez votre connexion.");
+        toast.error("Impossible de reprendre le cours. Vérifiez votre connexion.");
     } finally {
         setIsResuming(false);
     }
