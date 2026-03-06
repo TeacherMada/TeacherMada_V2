@@ -18,7 +18,9 @@ import { creditService, CREDIT_COSTS } from "./creditService";
 // Ces clés sont dans le bundle JS mais protégées par restriction de domaine
 // dans Google Cloud Console → Credentials → API Key → Application restrictions
 const RAW_KEYS = (import.meta.env.VITE_GEMINI_API_KEY || '').split(',').map((k: string) => k.trim()).filter(Boolean);
-
+// @ts-ignore
+const RAW_KEYS = (import.meta.env.VITE_GEMINI_API_KEY || '').split(',').map((k: string) => k.trim()).filter(Boolean);
+console.log('[Gemini] Clés chargées:', RAW_KEYS.length, 'clé(s)');
 // ── Modèles (du plus rapide au plus puissant) ─────────────────────────────────
 export const TEXT_MODEL         = 'gemini-2.5-flash';            // Rapide et fiable
 export const TEXT_MODEL_PRO     = 'gemini-3.1-flash-preview'; // Plus puissant
