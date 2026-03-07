@@ -282,7 +282,7 @@ export const storageService = {
   await supabase.auth.signOut();          // ① Déco Supabase
   localStorage.removeItem('tm_user');    // ② Vider le cache user
   localStorage.removeItem('tm_session'); // ③ Vider la session
-    }
+    },
 
   getCurrentUser: async (): Promise<UserProfile | null> => {
       const localUser = storageService.getLocalUser();
