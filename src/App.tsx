@@ -232,7 +232,7 @@ const AppContent: React.FC = () => {
     const session = await storageService.getOrCreateSession(user.id, newPreferences);
     setCurrentSession(session);
   };
-
+/*
   const handleLogout = async () => {
     await storageService.logout();
     setUser(null);
@@ -241,7 +241,21 @@ const AppContent: React.FC = () => {
     setShowAdmin(false);
     setActiveMode('chat');
   };
+ remplacé par ceci:*/
+  const handleLogout = async () => {
+  await storageService.logout();
+  // Vider tous les états React
+  setUser(null);
+  setCurrentSession(null);
+  setShowDashboard(false);
+  setShowAdmin(false);
+  setActiveMode('chat');
+  // Forcer un rechargement complet pour vider toute la mémoire
+  window.location.href = '/';
+};
 
+
+  
   const startExercise = async () => {
       if (!user || !currentSession) return;
       setIsGeneratingExercise(true);
