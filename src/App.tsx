@@ -106,7 +106,7 @@ const AppContent: React.FC = () => {
             setShowDashboard(false);
             setShowAdmin(false);
             setActiveMode('chat');
-            storageService.logout();
+            //storageService.logout();
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             if (session?.user) {
                 const updated = await storageService.getUserById(session.user.id);
