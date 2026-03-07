@@ -1,11 +1,11 @@
 /**
  * ============================================================================
- * TeacherMada — geminiService.ts v3.0 (DIRECT API — ULTRA RAPIDE)
+ * TeacherMada — geminiService.ts v4.0 (SANS STREAMING — ULTRA STABLE)
  * ============================================================================
- * Architecture : Frontend → Gemini API directement (pas de Edge Function)
- * Sécurité     : Clé restreinte par domaine dans Google Cloud Console
- * Crédits      : Toujours vérifiés côté Supabase (RPC consume_credits_safe)
- * Performance  : ~500ms vs ~2-3s avec Edge Function
+ * ✅ Appel direct Gemini (pas de Edge Function, pas de streaming SSE)
+ * ✅ Retry automatique + rotation de clés sur 429
+ * ✅ Fallback de modèles automatique
+ * ✅ Compatible avec tout le reste du code (sendMessageStream conservé)
  * ============================================================================
  */
 
@@ -14,107 +14,110 @@ import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
 
-// ── Clés API depuis les variables d'environnement Render (VITE_) ──────────────
-// Ces clés sont dans le bundle JS mais protégées par restriction de domaine
-// dans Google Cloud Console → Credentials → API Key → Application restrictions
-//const RAW_KEYS = (import.meta.env.VITE_GEMINI_API_KEY || '').split(',').map((k: string) => k.trim()).filter(Boolean);
+// ── Clés API (lues depuis vite.config.ts qui injecte GEMINI_API_KEY) ──────────
 // @ts-ignore
-const RAW_KEYS = (import.meta.env.VITE_GEMINI_API_KEY || '').split(',').map((k: string) => k.trim()).filter(Boolean);
-console.log('[Gemini] Clés chargées:', RAW_KEYS.length, 'clé(s)');
-// ── Modèles (du plus rapide au plus puissant) ─────────────────────────────────
-export const TEXT_MODEL         = 'gemini-2.5-flash';            // Rapide et fiable
-export const TEXT_MODEL_PRO     = 'gemini-3.1-flash-preview'; // Plus puissant
-export const AUDIO_MODEL        = 'gemini-2.5-flash-preview-tts';
+const RAW_KEYS: string[] = (import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '')
+  .split(',').map((k: string) => k.trim()).filter(Boolean);
+
+// ── Modèles (ordre de préférence) ─────────────────────────────────────────────
+const TEXT_MODELS = [
+  'gemini-3.1-flash-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',           // Rapide et stable
+  'gemini-2.0-flash-lite',      // Ultra rapide
+  'gemini-1.5-flash',           // Fallback fiable
+];
+
+export const TEXT_MODEL = TEXT_MODELS[0];
+export const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts';
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// ── Sélection de clé avec rotation (évite les limites de rate) ───────────────
-let keyIndex = 0;
+// ── Rotation des clés ─────────────────────────────────────────────────────────
+let _keyIdx = 0;
 function nextKey(): string {
-  if (RAW_KEYS.length === 0) {
-    console.error('[Gemini] VITE_GEMINI_API_KEY non configuré dans Render !');
-    return '';
-  }
-  const key = RAW_KEYS[keyIndex % RAW_KEYS.length];
-  keyIndex++;
+  if (RAW_KEYS.length === 0) return '';
+  const key = RAW_KEYS[_keyIdx % RAW_KEYS.length];
+  _keyIdx++;
   return key;
 }
 
-// ── Fetch Gemini avec retry automatique sur 429 et timeout ───────────────────
-async function geminiPost(
-  endpoint: string,
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// ── Appel Gemini principal (avec retry + rotation clé) ────────────────────────
+async function callGemini(
+  modelName: string,
   body: object,
-  timeoutMs: number = 25_000,
-  maxRetries: number = 2
+  timeoutMs = 30_000,
+  maxRetries = 2
 ): Promise<any> {
-  let lastError = '';
+  // Essayer chaque modèle en cas d'échec sur le modèle demandé
+  const modelsToTry = modelName === TEXT_MODEL
+    ? TEXT_MODELS
+    : [modelName, ...TEXT_MODELS];
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const key = nextKey();
-    if (!key) throw new Error('Clé Gemini manquante. Vérifiez VITE_GEMINI_API_KEY dans Render.');
+  let lastErr = 'Erreur inconnue';
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+  for (const model of modelsToTry) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const key = nextKey();
+      if (!key) throw new Error('GEMINI_API_KEY manquant dans Render.');
 
-    try {
-      const res = await fetch(`${BASE_URL}/${endpoint}?key=${key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
-      // Rate limit → rotation de clé + backoff
-      if (res.status === 429) {
-        lastError = `Rate limit clé ${attempt + 1}/${maxRetries + 1}`;
-        console.warn(`[Gemini] ${lastError}, rotation...`);
-        await sleep(400 * (attempt + 1));
-        continue;
-      }
+      try {
+        const res = await fetch(`${BASE_URL}/${model}:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
 
-      // Erreur non récupérable
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        lastError = `Gemini API ${res.status}: ${errText.slice(0, 150)}`;
-        if (res.status === 400 || res.status === 404) {
-          throw new Error(lastError);
-        }
-        if (attempt < maxRetries) {
-          await sleep(600 * (attempt + 1));
+        if (res.status === 429) {
+          lastErr = `Rate limit (clé ${attempt + 1}, modèle ${model})`;
+          console.warn(`[Gemini] ${lastErr}`);
+          await sleep(500 * (attempt + 1));
           continue;
         }
-        throw new Error(lastError);
-      }
 
-      return await res.json();
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          lastErr = `${model} HTTP ${res.status}: ${txt.slice(0, 100)}`;
+          console.warn(`[Gemini] ${lastErr}`);
+          if (res.status === 400) break; // Mauvaise requête → changer de modèle
+          await sleep(500 * (attempt + 1));
+          continue;
+        }
 
-    } catch (e: any) {
-      clearTimeout(timer);
-      if (e.name === 'AbortError') {
-        lastError = `Timeout ${timeoutMs / 1000}s`;
-      } else if (e.message !== lastError) {
-        lastError = e.message;
-      }
-      if (attempt < maxRetries) {
-        console.warn(`[Gemini] Tentative ${attempt + 1} échouée (${lastError}), retry...`);
-        await sleep(600 * (attempt + 1));
-        continue;
+        const data = await res.json();
+        console.log(`[Gemini] ✅ Réponse reçue (modèle: ${model})`);
+        return data;
+
+      } catch (e: any) {
+        clearTimeout(timer);
+        lastErr = e.name === 'AbortError' ? `Timeout ${timeoutMs/1000}s (${model})` : e.message;
+        console.warn(`[Gemini] Tentative ${attempt+1} échouée:`, lastErr);
+        if (attempt < maxRetries) await sleep(500 * (attempt + 1));
       }
     }
   }
 
-  throw new Error(`[Gemini] Toutes les tentatives échouées: ${lastError}`);
+  throw new Error(`[Gemini] Toutes les tentatives échouées. Dernière erreur: ${lastErr}`);
 }
 
-// ── Helper : construire le body generateContent ───────────────────────────────
-function buildGenerateBody(
-  contents: any,
-  config: Record<string, any> = {}
-): object {
+// ── Construire le body de requête ─────────────────────────────────────────────
+function buildBody(contents: any, config: Record<string, any> = {}): object {
   const { systemInstruction, ...genConfig } = config;
 
+  const normalized = typeof contents === 'string'
+    ? [{ role: 'user', parts: [{ text: contents }] }]
+    : Array.isArray(contents) ? contents : [contents];
+
   const body: any = {
-    contents: normalizeContents(contents),
+    contents: normalized,
     generationConfig: {
       maxOutputTokens: 8192,
       temperature: 0.7,
@@ -129,23 +132,28 @@ function buildGenerateBody(
   return body;
 }
 
-function normalizeContents(contents: any): any[] {
-  if (typeof contents === 'string') {
-    return [{ role: 'user', parts: [{ text: contents }] }];
-  }
-  if (Array.isArray(contents)) return contents;
-  return [contents];
+// ── Extraire le texte de la réponse ──────────────────────────────────────────
+function extractText(data: any): string {
+  if (!data?.candidates?.length) return '';
+  const parts = data.candidates[0]?.content?.parts || [];
+  return parts.map((p: any) => p.text || '').join('');
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-// ── Extraire le texte de la réponse Gemini ────────────────────────────────────
-function extractText(data: any): string {
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') ||
-    ''
-  );
+// ── Extraire et parser le JSON ────────────────────────────────────────────────
+function extractJSON<T>(data: any): T | null {
+  const raw = extractText(data);
+  if (!raw) return null;
+  try {
+    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return JSON.parse(clean) as T;
+  } catch {
+    // Chercher un JSON dans le texte
+    const match = raw.match(/[\[{][\s\S]*[\]}]/);
+    if (match) {
+      try { return JSON.parse(match[0]) as T; } catch { return null; }
+    }
+    return null;
+  }
 }
 
 
@@ -159,34 +167,33 @@ export const generateSupportResponse = async (
   history: { role: string; text: string }[]
 ): Promise<string> => {
   if (!storageService.canUseSupportAgent()) {
-    return '⛔ Quota journalier d\'aide atteint (100/100). Revenez demain.';
+    return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain.";
   }
 
-  try {
-    const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
-    const prompt = history.length > 0
-      ? `Historique:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion: ${userQuery}`
-      : userQuery;
+  const prompt = history.length > 0
+    ? `Historique:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion: ${userQuery}`
+    : userQuery;
 
-    const body = buildGenerateBody(prompt, {
-      systemInstruction,
+  try {
+    const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
+      systemInstruction: SUPPORT_AGENT_PROMPT(context, user),
       maxOutputTokens: 2000,
       temperature: 0.5,
-    });
+    }));
 
-    const data = await geminiPost(`${TEXT_MODEL}:generateContent`, body);
     storageService.incrementSupportUsage();
     return extractText(data) || "Je n'ai pas de réponse pour le moment.";
-
   } catch (e: any) {
     console.error('[Gemini] Support error:', e.message);
-    return 'Désolé, je rencontre un problème technique. Veuillez réessayer.';
+    return "Désolé, je rencontre un problème technique. Veuillez réessayer.";
   }
 };
 
 
 // ============================================================================
-// 2. CHAT PRINCIPAL — STREAMING DIRECT
+// 2. CHAT PRINCIPAL
+//    sendMessageStream conservé pour compatibilité avec ChatInterface.tsx
+//    mais sans vrai streaming — envoie la réponse complète d'un coup
 // ============================================================================
 export async function* sendMessageStream(
   message: string,
@@ -194,133 +201,63 @@ export async function* sendMessageStream(
   history: ChatMessage[]
 ) {
   if (!user.preferences) {
-    yield '⚠️ Profil incomplet. Veuillez configurer vos préférences.';
+    yield "⚠️ Profil incomplet. Veuillez configurer vos préférences.";
     return;
   }
 
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.LESSON))) {
-    yield '⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer.';
-    return;
-  }
-
-  const key = nextKey();
-  if (!key) {
-    yield '⚠️ Configuration manquante. Contactez l\'administrateur.';
+    yield "⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer.";
     return;
   }
 
   try {
-    console.log('[Gemini] Stream direct démarré. Modèle:', TEXT_MODEL);
+    console.log("[Gemini] Appel démarré. Modèle:", TEXT_MODEL);
 
-    // Limiter à 15 messages pour réduire tokens et latence
-    const recentHistory = history.slice(-15);
-    const contextPrompt = recentHistory
-      .filter(msg => msg.text?.trim())
-      .map(msg => `${msg.role === 'user' ? 'Élève' : 'Professeur'}: ${msg.text}`)
+    // Limiter à 15 messages pour réduire les tokens
+    const recent = history.slice(-15)
+      .filter(m => m.text?.trim())
+      .map(m => `${m.role === 'user' ? 'Élève' : 'Professeur'}: ${m.text}`)
       .join('\n\n');
 
-    const finalMessage = contextPrompt
-      ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}`
+    const finalMessage = recent
+      ? `Contexte précédent:\n${recent}\n\nNouveau message de l'élève: ${message}`
       : message;
 
-    const body = buildGenerateBody(finalMessage, {
+    const data = await callGemini(TEXT_MODEL, buildBody(finalMessage, {
       systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
       temperature: 0.7,
       maxOutputTokens: 8192,
-    });
+    }));
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    const text = extractText(data);
 
-    // Appel direct à Gemini SSE (sans Edge Function !)
-    const response = await fetch(
-      `${BASE_URL}/${TEXT_MODEL}:streamGenerateContent?alt=sse&key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      }
-    );
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      // Si rate limit → réessayer avec autre clé (non-streaming)
-      if (response.status === 429) {
-        console.warn('[Gemini] Rate limit stream, fallback non-stream...');
-        const fallbackData = await geminiPost(`${TEXT_MODEL}:generateContent`, body);
-        const text = extractText(fallbackData);
-        if (text) yield text;
-        await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
-        return;
-      }
-      throw new Error(`Gemini Stream ${response.status}: ${errText.slice(0, 100)}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('Pas de stream disponible');
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let hasText = false;
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // Découper sur \n\n (événements SSE complets)
-        const events = buffer.split('\n\n');
-        buffer = events.pop() ?? '';
-
-        for (const event of events) {
-          const dataLine = event.split('\n').find(l => l.startsWith('data: '));
-          if (!dataLine) continue;
-
-          const raw = dataLine.slice(6).trim();
-          if (raw === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(raw);
-            const chunk = extractText(parsed);
-            if (chunk) {
-              yield chunk;
-              hasText = true;
-            }
-          } catch {
-            // Chunk JSON incomplet — ignoré
-          }
-        }
-      }
-    } finally {
-      reader.cancel().catch(() => {});
-    }
-
-    if (!hasText) {
-      yield '⚠️ Aucune réponse reçue. Veuillez réessayer.';
+    if (!text) {
+      yield "⚠️ Aucune réponse de l'IA. Veuillez réessayer.";
       return;
     }
 
-    console.log('[Gemini] Stream terminé ✅');
+    // Simuler un léger effet de "frappe" en envoyant par blocs de 200 chars
+    // (garde l'expérience utilisateur fluide sans streaming réel)
+    const chunkSize = 200;
+    for (let i = 0; i < text.length; i += chunkSize) {
+      yield text.slice(i, i + chunkSize);
+      if (i + chunkSize < text.length) {
+        await sleep(20); // 20ms entre chaque bloc = effet naturel
+      }
+    }
+
+    console.log("[Gemini] ✅ Réponse envoyée.");
     await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
 
   } catch (e: any) {
-    if (e.name === 'AbortError') {
-      yield '⏱️ Le serveur met trop de temps à répondre. Veuillez réessayer.';
-    } else {
-      console.error('[Gemini] Stream exception:', e.message);
-      yield '⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer.';
-    }
+    console.error("[Gemini] Erreur chat:", e.message);
+    yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer.";
   }
 }
 
 
 // ============================================================================
-// 3. TEXT-TO-SPEECH (TTS)
+// 3. TEXT-TO-SPEECH
 // ============================================================================
 export const generateSpeech = async (
   text: string,
@@ -330,47 +267,31 @@ export const generateSpeech = async (
   const user = await storageService.getCurrentUser();
   if (!user || !(await creditService.checkBalance(user.id, cost))) return null;
 
-  const key = nextKey();
-  if (!key) return null;
-
   try {
-    console.log(`[Gemini TTS] Voix "${voiceName}"...`);
-
-    const body = {
-      contents: [{ parts: [{ text }] }],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName },
+    const data = await callGemini(
+      AUDIO_MODEL,
+      {
+        contents: [{ parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName } },
           },
         },
       },
-    };
-
-    const data = await geminiPost(
-      `${AUDIO_MODEL}:generateContent`,
-      body,
-      20_000 // TTS peut être lent — 20s timeout
+      20_000
     );
 
     const audioBase64 =
-      data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data ||
       data?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
 
-    if (!audioBase64) {
-      console.warn('[Gemini TTS] Pas de données audio dans la réponse.');
-      return null;
-    }
+    if (!audioBase64) return null;
 
     await creditService.deduct(user.id, cost);
 
-    // base64 → ArrayBuffer
     const binary = atob(audioBase64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-    console.log('[Gemini TTS] ✅ Audio généré.');
     return bytes.buffer as ArrayBuffer;
 
   } catch (e: any) {
@@ -381,69 +302,41 @@ export const generateSpeech = async (
 
 
 // ============================================================================
-// 4. GÉNÉRATION JSON (exercices, roleplay, vocabulaire)
-// ============================================================================
-async function generateJSON<T>(
-  prompt: string,
-  systemInstruction?: string,
-  schema?: object
-): Promise<T | null> {
-  const genConfig: any = {
-    maxOutputTokens: 4096,
-    temperature: 0.4,
-    responseMimeType: 'application/json',
-  };
-
-  if (schema) genConfig.responseSchema = schema;
-
-  const body = buildGenerateBody(prompt, {
-    ...(systemInstruction ? { systemInstruction } : {}),
-    ...genConfig,
-  });
-
-  try {
-    const data = await geminiPost(`${TEXT_MODEL}:generateContent`, body);
-    const raw = extractText(data);
-    if (!raw) return null;
-
-    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(clean) as T;
-  } catch (e: any) {
-    console.error('[Gemini JSON] Parse error:', e.message);
-    return null;
-  }
-}
-
-
-// ============================================================================
-// 5. EXTRACTION VOCABULAIRE
+// 4. VOCABULAIRE
 // ============================================================================
 export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> => {
   const user = await storageService.getCurrentUser();
   if (!user) return [];
 
   const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-  const prompt = `Analyse la conversation et extrais 3 à 5 mots-clés vocabulaire importants.
-Conversation:\n${context}
+  const prompt = `Extrais 3 à 5 mots-clés vocabulaire de cette conversation.
+Réponds UNIQUEMENT en JSON array: [{"word":"...","translation":"...","example":"..."}]
 
-Réponds UNIQUEMENT en JSON array: [{"word": "...", "translation": "...", "example": "..."}]`;
+Conversation:\n${context}`;
 
-  const result = await generateJSON<any[]>(prompt);
-  if (!result || !Array.isArray(result)) return [];
+  try {
+    const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
+      maxOutputTokens: 1024, temperature: 0.3,
+      responseMimeType: 'application/json',
+    }));
 
-  return result.map((item: any) => ({
-    id: crypto.randomUUID(),
-    word: item.word || '',
-    translation: item.translation || '',
-    example: item.example || '',
-    mastered: false,
-    addedAt: Date.now(),
-  }));
+    const result = extractJSON<any[]>(data);
+    if (!Array.isArray(result)) return [];
+
+    return result.map(item => ({
+      id: crypto.randomUUID(),
+      word: item.word || '',
+      translation: item.translation || '',
+      example: item.example || '',
+      mastered: false,
+      addedAt: Date.now(),
+    }));
+  } catch { return []; }
 };
 
 
 // ============================================================================
-// 6. EXERCICES
+// 5. EXERCICES
 // ============================================================================
 export const generateExerciseFromHistory = async (
   history: ChatMessage[],
@@ -452,69 +345,69 @@ export const generateExerciseFromHistory = async (
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.EXERCISE))) return [];
 
   const context = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-  const prompt = `Génère 3 exercices variés (QCM ou Vrai/Faux) adaptés au niveau ${user.preferences?.level} en ${user.preferences?.targetLanguage}.
-Basé sur cette conversation:\n${context}
-
+  const prompt = `Génère 3 exercices variés (QCM ou Vrai/Faux) pour niveau ${user.preferences?.level} en ${user.preferences?.targetLanguage}.
 Réponds UNIQUEMENT en JSON array:
-[{
-  "type": "multiple_choice" | "true_false",
-  "question": "...",
-  "options": ["A", "B", "C", "D"],
-  "correct": "A",
-  "explanation": "..."
-}]`;
+[{"type":"multiple_choice","question":"...","options":["A","B","C","D"],"correct":"A","explanation":"..."}]
 
-  const result = await generateJSON<ExerciseItem[]>(prompt);
+Conversation:\n${context}`;
 
-  if (!result || !Array.isArray(result)) return [];
+  try {
+    const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
+      maxOutputTokens: 2048, temperature: 0.4,
+      responseMimeType: 'application/json',
+    }));
 
-  await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
-  return result.map((item: any, i: number) => ({ id: `ex_${i}_${Date.now()}`, ...item }));
+    const result = extractJSON<ExerciseItem[]>(data);
+    if (!Array.isArray(result)) return [];
+
+    await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
+    return result.map((item: any, i: number) => ({ id: `ex_${i}_${Date.now()}`, ...item }));
+  } catch { return []; }
 };
 
 
 // ============================================================================
-// 7. ROLEPLAY
+// 6. ROLEPLAY
 // ============================================================================
 export const generateRoleplayResponse = async (
   history: ChatMessage[],
   scenarioPrompt: string,
   user: UserProfile,
-  isClosing: boolean = false,
-  _isInitial: boolean = false
+  isClosing = false,
+  _isInitial = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE))) {
-    return { aiReply: '⚠️ Crédits insuffisants.' };
+    return { aiReply: "⚠️ Crédits insuffisants." };
   }
 
-  const systemInstruction = `Tu es un partenaire de jeu de rôle en ${user.preferences?.targetLanguage} (niveau ${user.preferences?.level}).
-Scénario: ${scenarioPrompt}.
-Réponds UNIQUEMENT en JSON: {"aiReply": "...", "correction": "..." (si faute), "explanation": "...", "score": 0-100, "feedback": "..."}`;
+  const sys = `Tu es partenaire de jeu de rôle en ${user.preferences?.targetLanguage} (niveau ${user.preferences?.level}). Scénario: ${scenarioPrompt}. Réponds en JSON: {"aiReply":"...","correction":"...","explanation":"...","score":0-100,"feedback":"..."}`;
 
-  const contextPrompt = history.filter(msg => msg.text?.trim()).map(m => `${m.role}: ${m.text}`).join('\n');
-  const finalPrompt = isClosing
-    ? `${contextPrompt}\n\nFais l'évaluation finale complète.`
-    : (contextPrompt || 'Commence le jeu de rôle.');
+  const ctx = history.filter(m => m.text?.trim()).map(m => `${m.role}: ${m.text}`).join('\n');
+  const prompt = isClosing ? `${ctx}\n\nFais l'évaluation finale.` : (ctx || "Commence.");
 
-  const result = await generateJSON<any>(finalPrompt, systemInstruction);
+  try {
+    const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
+      systemInstruction: sys, temperature: 0.6,
+      responseMimeType: 'application/json',
+    }));
 
-  if (!result) return { aiReply: 'Problème technique. Veuillez réessayer.' };
+    const result = extractJSON<any>(data);
+    if (!result) return { aiReply: "Continuons la conversation." };
 
-  await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
-  return result;
+    await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
+    return result;
+  } catch {
+    return { aiReply: "Problème technique. Veuillez réessayer." };
+  }
 };
 
 
 // ============================================================================
-// 8. GÉNÉRATION TEXTE GÉNÉRIQUE
+// 7. TEXTE GÉNÉRIQUE
 // ============================================================================
-export const generateText = async (
-  prompt: string,
-  model: string = TEXT_MODEL
-): Promise<string> => {
+export const generateText = async (prompt: string): Promise<string> => {
   try {
-    const body = buildGenerateBody(prompt, { maxOutputTokens: 4096 });
-    const data = await geminiPost(`${model}:generateContent`, body);
+    const data = await callGemini(TEXT_MODEL, buildBody(prompt, { maxOutputTokens: 4096 }));
     return extractText(data);
   } catch (e: any) {
     console.error('[Gemini] generateText error:', e.message);
