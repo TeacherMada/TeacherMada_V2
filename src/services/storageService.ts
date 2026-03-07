@@ -268,6 +268,7 @@ export const storageService = {
       }
   },
 
+    /*
   logout: async () => {
       try {
           await supabase.auth.signOut();
@@ -276,7 +277,12 @@ export const storageService = {
       }
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       localStorage.removeItem('tm_v3_current_user_id');
-  },
+  }, remplacé par Ceci :*/
+    logout: async () => {
+  await supabase.auth.signOut();          // ① Déco Supabase
+  localStorage.removeItem('tm_user');    // ② Vider le cache user
+  localStorage.removeItem('tm_session'); // ③ Vider la session
+    }
 
   getCurrentUser: async (): Promise<UserProfile | null> => {
       const localUser = storageService.getLocalUser();
