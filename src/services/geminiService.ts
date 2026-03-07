@@ -1,11 +1,9 @@
 /**
  * ============================================================================
- * TeacherMada — geminiService.ts v4.0 (SANS STREAMING — ULTRA STABLE)
- * ============================================================================
- * ✅ Appel direct Gemini (pas de Edge Function, pas de streaming SSE)
- * ✅ Retry automatique + rotation de clés sur 429
- * ✅ Fallback de modèles automatique
- * ✅ Compatible avec tout le reste du code (sendMessageStream conservé)
+ * TeacherMada — geminiService.ts v4.1
+ * ✅ Fix: correct → correctAnswer (ExerciseItem type)
+ * ✅ Fix: messages with undefined text filtrés avant envoi
+ * ✅ Fix: fallback modèles automatique
  * ============================================================================
  */
 
@@ -14,27 +12,26 @@ import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
 
-// ── Clés API (lues depuis vite.config.ts qui injecte GEMINI_API_KEY) ──────────
+// ── Clés API ──────────────────────────────────────────────────────────────────
 // @ts-ignore
 const RAW_KEYS: string[] = (import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '')
   .split(',').map((k: string) => k.trim()).filter(Boolean);
 
-// ── Modèles (ordre de préférence) ─────────────────────────────────────────────
+// ── Modèles ───────────────────────────────────────────────────────────────────
 const TEXT_MODELS = [
   'gemini-3-flash-preview',
   'gemini-3-pro-preview',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',           // Rapide et stable
-  'gemini-2.0-flash-lite',      // Ultra rapide
-  'gemini-1.5-flash',           // Fallback fiable
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
 ];
-
 export const TEXT_MODEL = TEXT_MODELS[0];
 export const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts';
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// ── Rotation des clés ─────────────────────────────────────────────────────────
+// ── Rotation clés ─────────────────────────────────────────────────────────────
 let _keyIdx = 0;
 function nextKey(): string {
   if (RAW_KEYS.length === 0) return '';
@@ -45,14 +42,13 @@ function nextKey(): string {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-// ── Appel Gemini principal (avec retry + rotation clé) ────────────────────────
+// ── Appel Gemini avec retry + fallback modèles ────────────────────────────────
 async function callGemini(
   modelName: string,
   body: object,
   timeoutMs = 30_000,
   maxRetries = 2
 ): Promise<any> {
-  // Essayer chaque modèle en cas d'échec sur le modèle demandé
   const modelsToTry = modelName === TEXT_MODEL
     ? TEXT_MODELS
     : [modelName, ...TEXT_MODELS];
@@ -87,19 +83,19 @@ async function callGemini(
           const txt = await res.text().catch(() => '');
           lastErr = `${model} HTTP ${res.status}: ${txt.slice(0, 100)}`;
           console.warn(`[Gemini] ${lastErr}`);
-          if (res.status === 400) break; // Mauvaise requête → changer de modèle
+          if (res.status === 400) break;
           await sleep(500 * (attempt + 1));
           continue;
         }
 
         const data = await res.json();
-        console.log(`[Gemini] ✅ Réponse reçue (modèle: ${model})`);
+        console.log(`[Gemini] ✅ Réponse (modèle: ${model})`);
         return data;
 
       } catch (e: any) {
         clearTimeout(timer);
-        lastErr = e.name === 'AbortError' ? `Timeout ${timeoutMs/1000}s (${model})` : e.message;
-        console.warn(`[Gemini] Tentative ${attempt+1} échouée:`, lastErr);
+        lastErr = e.name === 'AbortError' ? `Timeout ${timeoutMs / 1000}s` : e.message;
+        console.warn(`[Gemini] Tentative ${attempt + 1} échouée:`, lastErr);
         if (attempt < maxRetries) await sleep(500 * (attempt + 1));
       }
     }
@@ -108,7 +104,7 @@ async function callGemini(
   throw new Error(`[Gemini] Toutes les tentatives échouées. Dernière erreur: ${lastErr}`);
 }
 
-// ── Construire le body de requête ─────────────────────────────────────────────
+// ── Construire le body ────────────────────────────────────────────────────────
 function buildBody(contents: any, config: Record<string, any> = {}): object {
   const { systemInstruction, ...genConfig } = config;
 
@@ -132,14 +128,14 @@ function buildBody(contents: any, config: Record<string, any> = {}): object {
   return body;
 }
 
-// ── Extraire le texte de la réponse ──────────────────────────────────────────
+// ── Extraire le texte ─────────────────────────────────────────────────────────
 function extractText(data: any): string {
   if (!data?.candidates?.length) return '';
   const parts = data.candidates[0]?.content?.parts || [];
   return parts.map((p: any) => p.text || '').join('');
 }
 
-// ── Extraire et parser le JSON ────────────────────────────────────────────────
+// ── Extraire JSON depuis la réponse ──────────────────────────────────────────
 function extractJSON<T>(data: any): T | null {
   const raw = extractText(data);
   if (!raw) return null;
@@ -147,13 +143,17 @@ function extractJSON<T>(data: any): T | null {
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(clean) as T;
   } catch {
-    // Chercher un JSON dans le texte
     const match = raw.match(/[\[{][\s\S]*[\]}]/);
     if (match) {
       try { return JSON.parse(match[0]) as T; } catch { return null; }
     }
     return null;
   }
+}
+
+// ── Filtrer les messages valides ──────────────────────────────────────────────
+function validMessages(history: ChatMessage[]): ChatMessage[] {
+  return history.filter(m => m && typeof m.text === 'string' && m.text.trim().length > 0);
 }
 
 
@@ -170,8 +170,9 @@ export const generateSupportResponse = async (
     return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain.";
   }
 
-  const prompt = history.length > 0
-    ? `Historique:\n${history.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion: ${userQuery}`
+  const safeHistory = history.filter(h => h && typeof h.text === 'string' && h.text.trim());
+  const prompt = safeHistory.length > 0
+    ? `Historique:\n${safeHistory.map(h => `${h.role}: ${h.text}`).join('\n')}\n\nQuestion: ${userQuery}`
     : userQuery;
 
   try {
@@ -192,8 +193,7 @@ export const generateSupportResponse = async (
 
 // ============================================================================
 // 2. CHAT PRINCIPAL
-//    sendMessageStream conservé pour compatibilité avec ChatInterface.tsx
-//    mais sans vrai streaming — envoie la réponse complète d'un coup
+//    sendMessageStream conservé pour compatibilité (pas de vrai streaming)
 // ============================================================================
 export async function* sendMessageStream(
   message: string,
@@ -213,14 +213,14 @@ export async function* sendMessageStream(
   try {
     console.log("[Gemini] Appel démarré. Modèle:", TEXT_MODEL);
 
-    // Limiter à 15 messages pour réduire les tokens
-    const recent = history.slice(-15)
-      .filter(m => m.text?.trim())
+    // ✅ Filtrer les messages avec texte vide ou undefined
+    const recentValid = validMessages(history).slice(-15);
+    const contextPrompt = recentValid
       .map(m => `${m.role === 'user' ? 'Élève' : 'Professeur'}: ${m.text}`)
       .join('\n\n');
 
-    const finalMessage = recent
-      ? `Contexte précédent:\n${recent}\n\nNouveau message de l'élève: ${message}`
+    const finalMessage = contextPrompt
+      ? `Contexte précédent:\n${contextPrompt}\n\nNouveau message de l'élève: ${message}`
       : message;
 
     const data = await callGemini(TEXT_MODEL, buildBody(finalMessage, {
@@ -236,14 +236,11 @@ export async function* sendMessageStream(
       return;
     }
 
-    // Simuler un léger effet de "frappe" en envoyant par blocs de 200 chars
-    // (garde l'expérience utilisateur fluide sans streaming réel)
+    // Envoi par blocs pour un effet de frappe naturel
     const chunkSize = 200;
     for (let i = 0; i < text.length; i += chunkSize) {
       yield text.slice(i, i + chunkSize);
-      if (i + chunkSize < text.length) {
-        await sleep(20); // 20ms entre chaque bloc = effet naturel
-      }
+      if (i + chunkSize < text.length) await sleep(20);
     }
 
     console.log("[Gemini] ✅ Réponse envoyée.");
@@ -308,7 +305,11 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> 
   const user = await storageService.getCurrentUser();
   if (!user) return [];
 
-  const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
+  const context = validMessages(history).slice(-6)
+    .map(m => `${m.role}: ${m.text}`).join('\n');
+
+  if (!context) return [];
+
   const prompt = `Extrais 3 à 5 mots-clés vocabulaire de cette conversation.
 Réponds UNIQUEMENT en JSON array: [{"word":"...","translation":"...","example":"..."}]
 
@@ -316,7 +317,8 @@ Conversation:\n${context}`;
 
   try {
     const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
-      maxOutputTokens: 1024, temperature: 0.3,
+      maxOutputTokens: 1024,
+      temperature: 0.3,
       responseMimeType: 'application/json',
     }));
 
@@ -325,9 +327,9 @@ Conversation:\n${context}`;
 
     return result.map(item => ({
       id: crypto.randomUUID(),
-      word: item.word || '',
-      translation: item.translation || '',
-      example: item.example || '',
+      word: String(item.word || ''),
+      translation: String(item.translation || ''),
+      example: String(item.example || ''),
       mastered: false,
       addedAt: Date.now(),
     }));
@@ -337,6 +339,7 @@ Conversation:\n${context}`;
 
 // ============================================================================
 // 5. EXERCICES
+// ✅ FIX PRINCIPAL : "correct" → "correctAnswer" pour correspondre à ExerciseItem
 // ============================================================================
 export const generateExerciseFromHistory = async (
   history: ChatMessage[],
@@ -344,25 +347,89 @@ export const generateExerciseFromHistory = async (
 ): Promise<ExerciseItem[]> => {
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.EXERCISE))) return [];
 
-  const context = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-  const prompt = `Génère 3 exercices variés (QCM ou Vrai/Faux) pour niveau ${user.preferences?.level} en ${user.preferences?.targetLanguage}.
-Réponds UNIQUEMENT en JSON array:
-[{"type":"multiple_choice","question":"...","options":["A","B","C","D"],"correct":"A","explanation":"..."}]
+  // ✅ Filtrer les messages valides avant envoi
+  const validHistory = validMessages(history);
+  if (validHistory.length < 2) {
+    console.warn('[Gemini] Historique insuffisant pour générer des exercices');
+    return [];
+  }
 
-Conversation:\n${context}`;
+  const context = validHistory.slice(-10)
+    .map(m => `${m.role}: ${m.text}`).join('\n');
+
+  // ✅ Prompt JSON strict avec "correctAnswer" (nom attendu par ExerciseItem)
+  const prompt = `Tu es un professeur de langues. Génère exactement 3 exercices variés pour un apprenant de niveau ${user.preferences?.level || 'B1'} en ${user.preferences?.targetLanguage || 'Anglais'}.
+
+Basé sur cette conversation pédagogique:
+${context}
+
+RÈGLES STRICTES:
+- Type 1: "multiple_choice" avec 4 options (A, B, C, D)
+- Type 2: "true_false" avec options ["Vrai", "Faux"]  
+- Utilise le vocabulaire ou la grammaire de la conversation
+- Les questions doivent être en ${user.preferences?.explanationLanguage || 'Français'}
+
+Réponds UNIQUEMENT en JSON array valide (pas de texte avant ou après):
+[
+  {
+    "type": "multiple_choice",
+    "question": "Question ici",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "Option A",
+    "explanation": "Explication courte"
+  },
+  {
+    "type": "true_false",
+    "question": "Affirmation à évaluer",
+    "options": ["Vrai", "Faux"],
+    "correctAnswer": "Vrai",
+    "explanation": "Explication courte"
+  }
+]`;
 
   try {
     const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
-      maxOutputTokens: 2048, temperature: 0.4,
+      maxOutputTokens: 2048,
+      temperature: 0.4,
       responseMimeType: 'application/json',
     }));
 
-    const result = extractJSON<ExerciseItem[]>(data);
-    if (!Array.isArray(result)) return [];
+    const raw = extractJSON<any[]>(data);
+    if (!Array.isArray(raw) || raw.length === 0) {
+      console.warn('[Gemini] Réponse exercices invalide:', raw);
+      return [];
+    }
+
+    // ✅ Validation et nettoyage de chaque exercice
+    const exercises: ExerciseItem[] = raw
+      .filter(item =>
+        item &&
+        typeof item.question === 'string' && item.question.trim() &&
+        typeof item.correctAnswer === 'string' && item.correctAnswer.trim() &&
+        Array.isArray(item.options) && item.options.length >= 2
+      )
+      .map((item: any, i: number) => ({
+        id: `ex_${i}_${Date.now()}`,
+        type: (item.type === 'true_false' ? 'true_false' : 'multiple_choice') as ExerciseItem['type'],
+        question: String(item.question).trim(),
+        options: item.options.map((o: any) => String(o).trim()),
+        correctAnswer: String(item.correctAnswer).trim(),
+        explanation: String(item.explanation || '').trim(),
+      }));
+
+    if (exercises.length === 0) {
+      console.warn('[Gemini] Aucun exercice valide après validation');
+      return [];
+    }
 
     await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
-    return result.map((item: any, i: number) => ({ id: `ex_${i}_${Date.now()}`, ...item }));
-  } catch { return []; }
+    console.log(`[Gemini] ✅ ${exercises.length} exercice(s) générés.`);
+    return exercises;
+
+  } catch (e: any) {
+    console.error('[Gemini] generateExercise error:', e.message);
+    return [];
+  }
 };
 
 
@@ -380,14 +447,17 @@ export const generateRoleplayResponse = async (
     return { aiReply: "⚠️ Crédits insuffisants." };
   }
 
-  const sys = `Tu es partenaire de jeu de rôle en ${user.preferences?.targetLanguage} (niveau ${user.preferences?.level}). Scénario: ${scenarioPrompt}. Réponds en JSON: {"aiReply":"...","correction":"...","explanation":"...","score":0-100,"feedback":"..."}`;
+  const sys = `Tu es partenaire de jeu de rôle en ${user.preferences?.targetLanguage} (niveau ${user.preferences?.level}).
+Scénario: ${scenarioPrompt}.
+Réponds en JSON: {"aiReply":"...","correction":"...","explanation":"...","score":0-100,"feedback":"..."}`;
 
-  const ctx = history.filter(m => m.text?.trim()).map(m => `${m.role}: ${m.text}`).join('\n');
+  const ctx = validMessages(history).map(m => `${m.role}: ${m.text}`).join('\n');
   const prompt = isClosing ? `${ctx}\n\nFais l'évaluation finale.` : (ctx || "Commence.");
 
   try {
     const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
-      systemInstruction: sys, temperature: 0.6,
+      systemInstruction: sys,
+      temperature: 0.6,
       responseMimeType: 'application/json',
     }));
 
