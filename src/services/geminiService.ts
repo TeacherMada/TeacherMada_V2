@@ -21,8 +21,8 @@ const RAW_KEYS: string[] = (import.meta.env.VITE_GEMINI_API_KEY || process.env.G
 
 // ── Modèles (ordre de préférence) ─────────────────────────────────────────────
 const TEXT_MODELS = [
-  'gemini-3.1-flash-preview',
   'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
   'gemini-2.0-flash',           // Rapide et stable
