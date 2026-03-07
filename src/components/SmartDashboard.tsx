@@ -828,7 +828,7 @@ const SmartDashboard: React.FC<Props> = ({
         {/* Footer Actions */}
         <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-[#0F1422] safe-bottom">
             <button 
-                onClick={Logout}
+                onClick={onLogout}
                 className="w-full py-3 bg-red-50 dark:bg-red-900/10 text-red-500 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors text-sm"
             >
                 <LogOut className="w-4 h-4" /> {t('dashboard.logout')}
