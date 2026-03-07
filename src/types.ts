@@ -1,4 +1,3 @@
-
 export type UserRole = 'user' | 'admin';
 export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
@@ -85,6 +84,7 @@ export interface UserProfile {
   id: string;
   username: string;
   email?: string;
+  phoneNumber?: string; // ✅ AJOUT
   role: UserRole;
   credits: number;
   preferences: UserPreferences | null;
