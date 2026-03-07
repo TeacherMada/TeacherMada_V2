@@ -55,12 +55,12 @@ const SmartDashboard: React.FC<Props> = ({
     loadData();
   }, [user?.id, activeTab]);
   
-  // ── Edit Profile State (préférences) ──────────────────────────────────────
+  // Edit Profile State (préférences pédagogiques)
   const [editName, setEditName] = useState(user?.username || '');
   const [editTeacherName, setEditTeacherName] = useState(user?.preferences?.teacherName || 'TeacherMada');
   const [editVoiceName, setEditVoiceName] = useState<VoiceName>(user?.preferences?.voiceName || 'Kore');
 
-  // ── ✅ NOUVEAU : Edit Compte State ────────────────────────────────────────
+  // ✅ NOUVEAU : Edit Compte (email / téléphone / mot de passe)
   const [editEmail, setEditEmail] = useState(user?.email || '');
   const [editPhone, setEditPhone] = useState((user as any)?.phoneNumber || '');
   const [editCurrentPassword, setEditCurrentPassword] = useState('');
@@ -89,8 +89,7 @@ const SmartDashboard: React.FC<Props> = ({
     });
     const combined = [...enrichedCertificates];
     const passedExams = examResults.filter((exam: any) => 
-        exam.passed && 
-        !certificates.some((cert: any) => cert.examId === exam.id)
+        exam.passed && !certificates.some((cert: any) => cert.examId === exam.id)
     );
     passedExams.forEach((exam: any) => {
         const details = exam.details || {};
@@ -113,7 +112,7 @@ const SmartDashboard: React.FC<Props> = ({
     return combined.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
   }, [certificates, examResults, user, t]);
 
-  // ── Sauvegarder les préférences (nom affiché + voix) ──────────────────────
+  // Sauvegarder les préférences pédagogiques (nom affiché + voix)
   const handleSaveProfile = async () => {
       if (!editName.trim()) return;
       const updated = { 
@@ -131,7 +130,7 @@ const SmartDashboard: React.FC<Props> = ({
       setActiveTab('menu');
   };
 
-  // ── ✅ NOUVEAU : Sauvegarder infos du compte (email/phone/password) ────────
+  // ✅ NOUVEAU : Sauvegarder infos du compte (email / téléphone / mot de passe)
   const handleSaveAccount = async () => {
       if (isSavingAccount) return;
       setIsSavingAccount(true);
@@ -157,26 +156,20 @@ const SmartDashboard: React.FC<Props> = ({
               updates.newPassword = editNewPassword;
               updates.currentPassword = editCurrentPassword;
           }
-
           if (Object.keys(updates).length === 0) {
               toast.info("Aucune modification détectée.");
               setIsSavingAccount(false);
               return;
           }
-
           const result = await (storageService as any).updateAccountInfo(user.id, updates);
           if (result.success) {
               toast.success("Compte mis à jour avec succès !");
-              if (updates.email) {
-                  toast.info("Email : vérifiez votre boîte mail pour confirmer le changement.");
-              }
-              // Mettre à jour l'état local
-              const updatedUser = { 
+              if (updates.email) toast.info("Vérifiez votre boîte mail pour confirmer le changement d'email.");
+              onUpdateUser({ 
                   ...user, 
                   ...(updates.email && { email: updates.email }),
                   ...(updates.phoneNumber !== undefined && { phoneNumber: updates.phoneNumber }),
-              };
-              onUpdateUser(updatedUser);
+              });
               setEditCurrentPassword('');
               setEditNewPassword('');
           } else {
@@ -223,36 +216,59 @@ const SmartDashboard: React.FC<Props> = ({
       await storageService.markAllNotificationsRead(user.id);
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
+      toast.success(t('dashboard.all_read'));
   };
 
-  const handleDeleteNotif = async (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+  const handleDeleteNotif = async (id: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
       await storageService.deleteNotification(user.id, id);
       setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   const handleNotificationClick = (notif: SmartNotification) => {
-      if (!notif.read) handleMarkRead(notif.id);
-      if (notif.data?.certificateId || notif.data?.examId) {
-          const examId = notif.data.examId || notif.data.certificateId;
-          const exam = examResults.find(e => e.id === examId);
+      if (notif.data?.certificateId) {
+          const cert = certificates.find(c => c.id === notif.data.certificateId);
+          if (cert) {
+              const resultDetails: ExamResultDetailed = {
+                  examId: cert.examId || '',
+                  userId: cert.userId,
+                  userName: cert.userName,
+                  userFullName: cert.userFullName || user.username,
+                  language: cert.language,
+                  date: cert.issueDate,
+                  globalScore: cert.globalScore || cert.score || 100,
+                  skillScores: cert.skillScores || { reading: 100, writing: 100, listening: 100, speaking: 100 },
+                  detectedLevel: cert.level,
+                  passed: true,
+                  certificateId: cert.id,
+                  feedback: "Félicitations pour l'obtention de ce certificat officiel.",
+                  confidenceScore: 100
+              };
+              setStartWithCert(true);
+              setSelectedResult(resultDetails);
+              handleMarkRead(notif.id);
+          }
+      } else if (notif.data?.examId) {
+          const exam = examResults.find(e => e.id === notif.data.examId);
           if (exam) {
               const details = exam.details || {};
               const score = exam.score || 0;
+              // ✅ FIX TS2353: ExamResultDetailed n'a pas de champ 'id' — utiliser 'examId'
               const detailedResult: ExamResultDetailed = {
-                  id: exam.id,
-                  userId: user.id,
+                  examId: exam.id,
+                  userId: exam.userId || user.id,
+                  userName: user.username,
+                  userFullName: user.username,
                   language: exam.language,
-                  level: exam.level,
-                  globalScore: score,
-                  passed: exam.passed,
                   date: exam.date,
-                  feedback: details.feedback || '',
+                  globalScore: score,
                   skillScores: details.skillScores || { reading: score, writing: score, listening: score, speaking: score },
-                  detectedLevel: exam.level,
+                  detectedLevel: exam.level || exam.detectedLevel || '',
+                  passed: exam.passed,
+                  feedback: details.feedback || 'Détails non disponibles.',
                   confidenceScore: 0
               };
-              setStartWithCert(!!notif.data?.certificateId);
+              setStartWithCert(false);
               setSelectedResult(detailedResult);
               handleMarkRead(notif.id);
           }
@@ -350,7 +366,6 @@ const SmartDashboard: React.FC<Props> = ({
             {/* ── MENU TAB ── */}
             {activeTab === 'menu' && (
                 <div className="space-y-4 animate-fade-in">
-
                     {/* Credits Card */}
                     <div className={`relative rounded-3xl p-5 overflow-hidden text-white shadow-lg ${isLowCredits ? 'bg-gradient-to-br from-red-500 to-rose-600' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}`}>
                         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
@@ -364,10 +379,7 @@ const SmartDashboard: React.FC<Props> = ({
                             </div>
                         </div>
                         <div className="mt-5 relative z-10">
-                            <button 
-                                onClick={onShowPayment}
-                                className={`w-full py-2.5 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg text-sm ${isLowCredits ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-white text-slate-900 hover:bg-slate-100'}`}
-                            >
+                            <button onClick={onShowPayment} className={`w-full py-2.5 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg text-sm ${isLowCredits ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-white text-slate-900 hover:bg-slate-100'}`}>
                                 <Plus className="w-4 h-4" /> {t('common.recharge')}
                             </button>
                         </div>
@@ -376,9 +388,7 @@ const SmartDashboard: React.FC<Props> = ({
                     {/* Stats Card */}
                     <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-100 dark:border-slate-700 shadow-sm">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400">
-                                <BarChart3 className="w-5 h-5" />
-                            </div>
+                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400"><BarChart3 className="w-5 h-5" /></div>
                             <div>
                                 <h3 className="font-black text-slate-900 dark:text-white text-sm">{t('dashboard.stats')}</h3>
                                 <p className="text-[10px] text-slate-500">{t('dashboard.progress')}</p>
@@ -408,7 +418,7 @@ const SmartDashboard: React.FC<Props> = ({
                     <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
                         <SettingsItem icon={<User className="w-5 h-5 text-slate-500"/>} title={t('dashboard.edit_profile') || 'Modifier le profil'} value={user.username} onClick={() => setActiveTab('edit')} />
                         <SettingsItem icon={isDarkMode ? <Sun className="w-5 h-5 text-amber-500"/> : <Moon className="w-5 h-5 text-slate-500"/>} title={t('dashboard.theme') || 'Thème'} value={isDarkMode ? 'Sombre' : 'Clair'} onClick={toggleTheme} />
-                        <SettingsItem icon={<Globe className="w-5 h-5 text-cyan-500"/>} title={t('dashboard.explanation_lang') || 'Langue d\'explication'} value={language === 'fr' ? 'Français' : 'Malagasy'} onClick={toggleExplanationLang} />
+                        <SettingsItem icon={<Globe className="w-5 h-5 text-cyan-500"/>} title={t('dashboard.explanation_lang') || "Langue d'explication"} value={language === 'fr' ? 'Français' : 'Malagasy'} onClick={toggleExplanationLang} />
                     </div>
 
                     {/* Data */}
@@ -425,7 +435,6 @@ const SmartDashboard: React.FC<Props> = ({
                                 <input type="file" accept=".json" onChange={handleImport} className="hidden" disabled={isImporting} />
                             </label>
                         </div>
-
                         {showDeleteConfirm ? (
                             <div className="mt-2 p-4 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-900/50 animate-fade-in">
                                 <div className="flex items-center gap-3 mb-3 text-red-600 dark:text-red-400">
@@ -433,12 +442,8 @@ const SmartDashboard: React.FC<Props> = ({
                                     <span className="font-bold text-sm">{t('dashboard.confirm_delete_conv')}</span>
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 transition-colors text-xs">
-                                        {t('common.cancel')}
-                                    </button>
-                                    <button onClick={handleDeleteConversation} className="flex-1 py-2 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors text-xs shadow-lg shadow-red-500/20">
-                                        {t('common.confirm')}
-                                    </button>
+                                    <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 transition-colors text-xs">{t('common.cancel')}</button>
+                                    <button onClick={handleDeleteConversation} className="flex-1 py-2 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors text-xs shadow-lg shadow-red-500/20">{t('common.confirm')}</button>
                                 </div>
                             </div>
                         ) : (
@@ -459,7 +464,7 @@ const SmartDashboard: React.FC<Props> = ({
                     {displayCertificates.length === 0 ? (
                         <div className="text-center py-12 text-slate-400">
                             <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                            <p className="font-bold text-sm">{t('dashboard.no_certs') || 'Aucun diplôme pour l\'instant'}</p>
+                            <p className="font-bold text-sm">{t('dashboard.no_certs') || "Aucun diplôme pour l'instant"}</p>
                             <p className="text-xs mt-1">{t('dashboard.pass_exam') || 'Passez un examen pour obtenir un certificat'}</p>
                         </div>
                     ) : (
@@ -474,10 +479,8 @@ const SmartDashboard: React.FC<Props> = ({
                                             </div>
                                             <p className="text-xs text-slate-500">{new Date(cert.issueDate).toLocaleDateString('fr-FR')}</p>
                                         </div>
-                                        <div className="text-right">
-                                            <div className={`text-2xl font-black ${cert.globalScore >= 70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                                                {Math.round(cert.globalScore)}<span className="text-xs text-slate-400">/100</span>
-                                            </div>
+                                        <div className={`text-2xl font-black ${cert.globalScore >= 70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                                            {Math.round(cert.globalScore)}<span className="text-xs text-slate-400">/100</span>
                                         </div>
                                     </div>
                                 </div>
@@ -493,9 +496,7 @@ const SmartDashboard: React.FC<Props> = ({
                                         <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{exam.language} • {exam.level}</span>
                                         <p className="text-[10px] text-slate-400">{new Date(exam.date).toLocaleDateString('fr-FR')}</p>
                                     </div>
-                                    <div className={`text-lg font-black text-slate-400`}>
-                                        {Math.round(exam.score)}<span className="text-xs">/100</span>
-                                    </div>
+                                    <div className="text-lg font-black text-slate-400">{Math.round(exam.score)}<span className="text-xs">/100</span></div>
                                 </div>
                             ))}
                         </div>
@@ -510,36 +511,20 @@ const SmartDashboard: React.FC<Props> = ({
                         <ChevronRight className="w-3 h-3 rotate-180"/> {t('dashboard.back_dashboard') || 'Retour'}
                     </button>
                     
-                    {/* ── Section 1 : Préférences pédagogiques ── */}
+                    {/* Section 1 : Préférences pédagogiques */}
                     <div className="space-y-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Préférences pédagogiques</p>
-
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.username') || 'Nom affiché'}</label>
-                            <input 
-                                type="text" 
-                                value={editName} 
-                                onChange={e => setEditName(e.target.value)} 
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
-                            />
+                            <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.teacher_name') || 'Nom du Professeur'}</label>
-                            <input 
-                                type="text" 
-                                value={editTeacherName} 
-                                onChange={e => setEditTeacherName(e.target.value)} 
-                                placeholder="TeacherMada"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all"
-                            />
+                            <input type="text" value={editTeacherName} onChange={e => setEditTeacherName(e.target.value)} placeholder="TeacherMada" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.voice_style') || 'Style de Voix'}</label>
-                            <select 
-                                value={editVoiceName} 
-                                onChange={e => setEditVoiceName(e.target.value as VoiceName)} 
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all appearance-none"
-                            >
+                            <select value={editVoiceName} onChange={e => setEditVoiceName(e.target.value as VoiceName)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all appearance-none">
                                 <option value="Kore">Kore (Femme, Douce)</option>
                                 <option value="Zephyr">Zephyr (Femme, Dynamique)</option>
                                 <option value="Puck">Puck (Homme, Chaleureux)</option>
@@ -552,81 +537,32 @@ const SmartDashboard: React.FC<Props> = ({
                         </button>
                     </div>
 
-                    {/* ── Section 2 : Compte & Sécurité (NOUVEAU) ── */}
+                    {/* ✅ Section 2 : Compte & Sécurité */}
                     <div className="border-t border-slate-100 dark:border-slate-700 pt-5 space-y-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Compte &amp; Sécurité</p>
-
-                        {/* Email */}
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1">
-                                <Mail className="w-3 h-3"/> Email
-                            </label>
-                            <input 
-                                type="email" 
-                                value={editEmail} 
-                                onChange={e => setEditEmail(e.target.value)}
-                                placeholder="votre@email.com"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
-                            />
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</label>
+                            <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="votre@email.com" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm" />
                         </div>
-
-                        {/* Téléphone */}
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1">
-                                <Smartphone className="w-3 h-3"/> {t('common.phone') || 'Téléphone'}
-                            </label>
-                            <input 
-                                type="tel" 
-                                value={editPhone} 
-                                onChange={e => setEditPhone(e.target.value)}
-                                placeholder="034 00 000 00"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
-                            />
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Smartphone className="w-3 h-3"/> {t('common.phone') || 'Téléphone'}</label>
+                            <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="034 00 000 00" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm" />
                         </div>
-
-                        {/* Mot de passe actuel */}
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1">
-                                <Lock className="w-3 h-3"/> Mot de passe actuel
-                            </label>
-                            <input 
-                                type="password" 
-                                value={editCurrentPassword} 
-                                onChange={e => setEditCurrentPassword(e.target.value)}
-                                placeholder="Requis pour changer le mot de passe"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
-                            />
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Lock className="w-3 h-3"/> Mot de passe actuel</label>
+                            <input type="password" value={editCurrentPassword} onChange={e => setEditCurrentPassword(e.target.value)} placeholder="Requis pour changer le mot de passe" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm" />
                         </div>
-
-                        {/* Nouveau mot de passe */}
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1">
-                                <Lock className="w-3 h-3"/> Nouveau mot de passe
-                            </label>
-                            <input 
-                                type="password" 
-                                value={editNewPassword} 
-                                onChange={e => setEditNewPassword(e.target.value)}
-                                placeholder="6 caractères minimum"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
-                            />
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Lock className="w-3 h-3"/> Nouveau mot de passe</label>
+                            <input type="password" value={editNewPassword} onChange={e => setEditNewPassword(e.target.value)} placeholder="6 caractères minimum" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm" />
                         </div>
-
-                        <button 
-                            onClick={handleSaveAccount} 
-                            disabled={isSavingAccount}
-                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isSavingAccount 
-                                ? <Loader2 className="w-5 h-5 animate-spin"/> 
-                                : <Save className="w-5 h-5"/>
-                            }
+                        <button onClick={handleSaveAccount} disabled={isSavingAccount} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isSavingAccount ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5"/>}
                             Enregistrer les infos du compte
                         </button>
-
-                        <p className="text-[10px] text-slate-400 text-center px-4">
-                            Laissez les champs mot de passe vides si vous ne souhaitez pas le changer.
-                            Un email de confirmation sera envoyé si vous changez votre adresse email.
+                        <p className="text-[10px] text-slate-400 text-center px-2 leading-relaxed">
+                            Laissez les champs mot de passe vides si vous ne souhaitez pas le modifier.
+                            Un email de confirmation sera envoyé si vous changez votre adresse.
                         </p>
                     </div>
                 </div>
@@ -645,12 +581,10 @@ const SmartDashboard: React.FC<Props> = ({
                             </button>
                         )}
                     </div>
-
                     <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                         {t('dashboard.notifications') || 'Notifications'}
                         {unreadCount > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{unreadCount}</span>}
                     </h3>
-
                     {notifications.length === 0 ? (
                         <div className="text-center py-12 text-slate-400">
                             <Bell className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -663,9 +597,7 @@ const SmartDashboard: React.FC<Props> = ({
                                     key={notif.id} 
                                     onClick={() => handleNotificationClick(notif)}
                                     className={`p-4 rounded-2xl border transition-all relative group ${
-                                        notif.read 
-                                            ? 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 opacity-70' 
-                                            : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-900/50 shadow-sm'
+                                        notif.read ? 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 opacity-70' : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-900/50 shadow-sm'
                                     } ${(notif.data?.certificateId || notif.data?.examId) ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80' : ''}`}
                                 >
                                     <div className="flex gap-3">
@@ -673,22 +605,17 @@ const SmartDashboard: React.FC<Props> = ({
                                             notif.type === 'credit' ? 'bg-emerald-100 text-emerald-600' :
                                             notif.type === 'admin' ? 'bg-blue-100 text-blue-600' :
                                             notif.type === 'achievement' ? 'bg-yellow-100 text-yellow-600' :
-                                            notif.type === 'warning' ? 'bg-red-100 text-red-600' :
-                                            'bg-slate-100 text-slate-600'
+                                            notif.type === 'warning' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'
                                         }`}>
                                             {notif.type === 'credit' ? <CreditCard className="w-5 h-5"/> :
                                              notif.type === 'admin' ? <Info className="w-5 h-5"/> :
                                              notif.type === 'achievement' ? <Trophy className="w-5 h-5"/> :
-                                             notif.type === 'warning' ? <AlertTriangle className="w-5 h-5"/> :
-                                             <Bell className="w-5 h-5"/>}
+                                             notif.type === 'warning' ? <AlertTriangle className="w-5 h-5"/> : <Bell className="w-5 h-5"/>}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-start justify-between gap-2">
                                                 <p className="font-bold text-sm text-slate-900 dark:text-white leading-tight">{notif.title}</p>
-                                                <button 
-                                                    onClick={(e) => handleDeleteNotif(notif.id, e)}
-                                                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all shrink-0"
-                                                >
+                                                <button onClick={(e) => handleDeleteNotif(notif.id, e)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all shrink-0">
                                                     <X className="w-3 h-3"/>
                                                 </button>
                                             </div>
@@ -701,9 +628,7 @@ const SmartDashboard: React.FC<Props> = ({
                                             )}
                                         </div>
                                     </div>
-                                    {!notif.read && (
-                                        <div className="absolute top-3 right-3 w-2 h-2 bg-indigo-500 rounded-full"></div>
-                                    )}
+                                    {!notif.read && <div className="absolute top-3 right-3 w-2 h-2 bg-indigo-500 rounded-full"></div>}
                                 </div>
                             ))}
                         </div>
@@ -712,18 +637,14 @@ const SmartDashboard: React.FC<Props> = ({
             )}
         </div>
 
-        {/* Footer — Déconnexion */}
+        {/* Footer */}
         <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-[#0F1422] safe-bottom">
-            <button 
-                onClick={onLogout}
-                className="w-full py-3 bg-red-50 dark:bg-red-900/10 text-red-500 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors text-sm"
-            >
+            <button onClick={onLogout} className="w-full py-3 bg-red-50 dark:bg-red-900/10 text-red-500 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors text-sm">
                 <LogOut className="w-4 h-4" /> {t('dashboard.logout')}
             </button>
         </div>
       </div>
 
-      {/* Exam Result Modal */}
       {selectedResult && (
           <ExamResultView result={selectedResult} onClose={() => setSelectedResult(null)} initialShowCert={startWithCert} />
       )}
@@ -731,20 +652,11 @@ const SmartDashboard: React.FC<Props> = ({
   );
 };
 
-// Helper Component
-interface SettingsItemProps {
-    icon: React.ReactNode;
-    title: string;
-    value: string;
-    onClick: () => void;
-}
-
+interface SettingsItemProps { icon: React.ReactNode; title: string; value: string; onClick: () => void; }
 const SettingsItem = ({ icon, title, value, onClick }: SettingsItemProps) => (
     <button onClick={onClick} className="w-full flex items-center justify-between p-4 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-2xl transition-colors group">
         <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
-                {icon}
-            </div>
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">{icon}</div>
             <div className="text-left">
                 <div className="font-bold text-sm text-slate-800 dark:text-white">{title}</div>
                 <div className="text-[10px] text-slate-400">{value}</div>
