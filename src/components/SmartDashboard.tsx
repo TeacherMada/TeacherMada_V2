@@ -339,7 +339,7 @@ const SmartDashboard: React.FC<Props> = ({
           const pcm16   = new Int16Array(pcmBuffer);
           const float32 = new Float32Array(pcm16.length);
           for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
-          const audioBuffer = ctx.createBuffer(1, float32.length, 30000);
+          const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
           audioBuffer.copyToChannel(float32, 0);
 
           const source = ctx.createBufferSource();
