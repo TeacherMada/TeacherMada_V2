@@ -966,10 +966,7 @@ if (editName.trim() && editName.trim() !== user.username) updates.username = edi
     />
 </div>
                       
-                      <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.username') || 'Nom affiché'}</label>
-                            <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
-                        </div>
+                      
                       
                       <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</label>
