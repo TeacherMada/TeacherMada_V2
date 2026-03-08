@@ -651,6 +651,180 @@ const SmartDashboard: React.FC<Props> = ({
                         <SettingsItem icon={<Globe className="w-5 h-5 text-cyan-500"/>} title={t('dashboard.explanation_lang') || "Langue d'explication"} value={language === 'fr' ? 'Français' : 'Malagasy'} onClick={toggleExplanationLang} />
                     </div>
 
+
+                  {/* ── Sélection Professeur ── */}
+                    <div className="space-y-3">
+                      <style>{`
+                        @keyframes soundWave {
+            from { transform: scaleY(0.4); opacity: 0.6; }
+            to   { transform: scaleY(1);   opacity: 1;   }
+          }
+          @keyframes wowBounce {
+            0%   { transform: scale(1); }
+            30%  { transform: scale(1.04); }
+            70%  { transform: scale(0.98); }
+            100% { transform: scale(1.02); }
+          }
+          @keyframes floatUp {
+            0%   { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-28px) scale(1.5); }
+          }
+                        `}</style>
+                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">
+                            ✨ {t('dashboard.teacher_select') || 'Votre Professeur'}
+                        </h3>
+                        <p className="text-[10px] text-slate-400 ml-1 -mt-1">
+                            {t('dashboard.teacher_select_subtitle') || 'Sélectionnez · ▶ pour écouter la présentation (1 crédit)'}
+                        </p>
+
+                        <div className="flex flex-col gap-2">
+                            {TEACHER_PROFILES.map(tp => {
+                                const isSelected = editVoiceName === tp.voice;
+                                const isPlaying  = playingVoice  === tp.voice;
+                                const isWow      = justSelected  === tp.voice;
+
+                                return (
+                                    <div
+                                        key={tp.voice}
+                                        className={[
+                                            'relative flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-200 overflow-hidden',
+                                            isSelected
+                                                ? 'border-indigo-500 shadow-lg shadow-indigo-200/40 dark:shadow-indigo-900/40'
+                                                : 'border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600',
+                                            isWow ? 'scale-[1.02]' : 'scale-100',
+                                        ].join(' ')}
+                                        style={isSelected ? { background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, transparent 60%)' } : undefined}
+                                    >
+                                        {/* Photo cliquable */}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setEditVoiceName(tp.voice);
+                                                setEditTeacherName(tp.name);
+                                                setJustSelected(tp.voice);
+                                                setTimeout(() => setJustSelected(null), 1200);
+                                            }}
+                                            className="relative shrink-0"
+                                        >
+                                            <div className={`w-14 h-14 rounded-full p-0.5 transition-all ${isSelected ? `bg-gradient-to-br ${tp.gradient}` : 'bg-slate-200 dark:bg-slate-700'}`}>
+                                                <div className="w-full h-full rounded-full overflow-hidden bg-slate-100">
+                                                    <img
+                                                        src={tp.photo}
+                                                        alt={tp.name}
+                                                        className={`w-full h-full object-cover transition-transform duration-200 ${isSelected ? 'scale-105' : 'hover:scale-105'}`}
+                                                        loading="lazy"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = `https://api.dicebear.com/9.x/micah/svg?seed=${tp.name}`;
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                            {isSelected && (
+                                                <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center text-white text-[9px] font-black shadow-md border-2 border-white dark:border-slate-900">
+                                                    ✓
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        {/* Infos cliquables */}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setEditVoiceName(tp.voice);
+                                                setEditTeacherName(tp.name);
+                                                setJustSelected(tp.voice);
+                                                setTimeout(() => setJustSelected(null), 1200);
+                                            }}
+                                            className="flex-1 min-w-0 text-left"
+                                        >
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className={`font-black text-sm transition-colors ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-white'}`}>
+                                                    {tp.name}
+                                                </span>
+                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white bg-gradient-to-r ${tp.gradient} shadow-sm`}>
+                                                    {tp.badge}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                                                {tp.desc}
+                                            </p>
+                                            {isSelected && (
+                                                <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">
+                                                    ✓ Actif · voix {tp.voice}
+                                                </p>
+                                            )}
+                                        </button>
+
+                                        {/* Bouton Play */}
+                                        <button
+                                            type="button"
+                                            onClick={() => previewTeacherVoice(tp)}
+                                            title={isPlaying ? 'Arrêter' : `Écouter ${tp.name}`}
+                                            className={[
+                                                'shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm',
+                                                isPlaying
+                                                    ? `bg-gradient-to-br ${tp.gradient} text-white scale-110 shadow-md`
+                                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600',
+                                            ].join(' ')}
+                                        >
+                                            {isPlaying ? (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                                    <rect x="5" y="4" width="4" height="16" rx="1"/>
+                                                    <rect x="15" y="4" width="4" height="16" rx="1"/>
+                                                </svg>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86A1 1 0 008 5.14z"/>
+                                                </svg>
+                                            )}
+                                        </button>
+
+                                        {/* Confetti wow */}
+                                        {isWow && (
+                                            <span
+                                                className="absolute top-1 right-10 text-base pointer-events-none select-none"
+                                                style={{ animation: 'floatUp 1s ease-out forwards' }}
+                                            >
+                                                🎉
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Erreur */}
+                        {voiceError && (
+                            <p className="text-[10px] text-red-500 text-center">{voiceError}</p>
+                        )}
+
+                        {/* Info crédit */}
+                        <p className="text-[9px] text-slate-400 text-center">
+                            ▶ La présentation utilise 🪙
+                        </p>
+
+                        {/* Résumé sélection active */}
+                        {editVoiceName && (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                                <span className="text-base">
+                                    {TEACHER_PROFILES.find(t => t.voice === editVoiceName)?.gender === 'F' ? '👩‍🏫' : '👨‍🏫'}
+                                </span>
+                                <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">
+                                    {editTeacherName} · voix {editVoiceName}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveProfile}
+                                    className="ml-auto text-[10px] font-bold text-indigo-500 hover:text-indigo-700 underline"
+                                >
+                                    Sauvegarder
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    {/* ── Fin Sélection Professeur ── */}
+                  
+
                     {/* Data */}
                     <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-100 dark:border-slate-700 shadow-sm space-y-3">
                         <h3 className="font-black text-xs text-slate-500 uppercase">{t('dashboard.data') || 'Données'}</h3>
@@ -741,13 +915,10 @@ const SmartDashboard: React.FC<Props> = ({
                         <ChevronRight className="w-3 h-3 rotate-180"/> {t('dashboard.back_dashboard') || 'Retour'}
                     </button>
                     
-                    {/* Section 1 : Préférences pédagogiques */}
+                    {/* Section 1 : Préférences pédagogiques *
                     <div className="space-y-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Préférences pédagogiques</p>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.username') || 'Nom affiché'}</label>
-                            <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
-                        </div>
+                        
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.teacher_name') || 'Nom du Professeur'}</label>
                             <input type="text" value={editTeacherName} onChange={e => setEditTeacherName(e.target.value)} placeholder="TeacherMada" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
@@ -762,194 +933,26 @@ const SmartDashboard: React.FC<Props> = ({
                                 <option value="Charon">Charon (Homme, Grave)</option>
                                 <option value="Fenrir">Fenrir (Homme, Énergique)</option>
                             </select>
-                        </div> Remplacé par: */}
+                        </div> Remplacé par: *
 
-                      <div className="space-y-3">
-                        <style>{`
-                        @keyframes soundWave {
-            from { transform: scaleY(0.4); opacity: 0.6; }
-            to   { transform: scaleY(1);   opacity: 1;   }
-          }
-          @keyframes wowBounce {
-            0%   { transform: scale(1); }
-            30%  { transform: scale(1.04); }
-            70%  { transform: scale(0.98); }
-            100% { transform: scale(1.02); }
-          }
-          @keyframes floatUp {
-            0%   { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-28px) scale(1.5); }
-          }
-                        `}</style>
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1.5">
-                                ✨ {t('dashboard.teacher_select') || 'Votre Professeur'}
-                            </label>
-                            <p className="text-[10px] text-slate-400 ml-2 -mt-1">
-                                {t('dashboard.teacher_select_subtitle') || 'Cliquez pour sélectionner · Bouton 🔊 pour écouter'}
-                            </p>
-
-                            <div className="flex flex-col gap-2.5">
-                                {TEACHER_PROFILES.map(tp => {
-                                    const isSelected  = editVoiceName === tp.voice;
-                                    const isPlaying   = playingVoice === tp.voice;
-                                    const isWow       = justSelected === tp.voice;
-
-                                    return (
-                                        <div
-                                            key={tp.voice}
-                                            className={[
-                                                'relative flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-200 overflow-hidden',
-                                                isSelected
-                                                    ? 'border-indigo-500 shadow-lg shadow-indigo-200/40 dark:shadow-indigo-900/40'
-                                                    : 'border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600',
-                                                isWow ? 'scale-[1.02]' : 'scale-100',
-                                            ].join(' ')}
-                                            style={isSelected ? { background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, transparent 60%)' } : undefined}
-                                        >
-                                            {/* ── Photo réaliste ── */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditVoiceName(tp.voice);
-                                                    setEditTeacherName(tp.name);
-                                                    setJustSelected(tp.voice);
-                                                    setTimeout(() => setJustSelected(null), 1200);
-                                                }}
-                                                className="relative shrink-0 group/photo"
-                                                title={`Sélectionner ${tp.name}`}
-                                            >
-                                                <div className={`w-14 h-14 rounded-full p-0.5 transition-all ${isSelected ? `bg-gradient-to-br ${tp.gradient}` : 'bg-slate-200 dark:bg-slate-700'}`}>
-                                                    <div className="w-full h-full rounded-full overflow-hidden bg-slate-100">
-                                                        <img
-                                                            src={tp.photo}
-                                                            alt={tp.name}
-                                                            className={`w-full h-full object-cover transition-transform duration-200 ${isSelected ? 'scale-105' : 'group-hover/photo:scale-105'}`}
-                                                            loading="lazy"
-                                                            onError={(e) => {
-                                                                // Fallback DiceBear si photo indisponible
-                                                                (e.target as HTMLImageElement).src = `https://api.dicebear.com/9.x/micah/svg?seed=${tp.name}`;
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                {/* Badge sélectionné */}
-                                                {isSelected && (
-                                                    <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center text-white text-[9px] font-black shadow-md border-2 border-white dark:border-slate-900">
-                                                        ✓
-                                                    </span>
-                                                )}
-                                            </button>
-
-                                            {/* ── Infos prof ── */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditVoiceName(tp.voice);
-                                                    setEditTeacherName(tp.name);
-                                                    setJustSelected(tp.voice);
-                                                    setTimeout(() => setJustSelected(null), 1200);
-                                                }}
-                                                className="flex-1 min-w-0 text-left"
-                                            >
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className={`font-black text-sm transition-colors ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-white'}`}>
-                                                        {tp.name}
-                                                    </span>
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white bg-gradient-to-r ${tp.gradient} shadow-sm`}>
-                                                        {tp.badge}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                                                    {tp.desc}
-                                                </p>
-                                                {isSelected && (
-                                                    <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">
-                                                        ✓ Sélectionné · voix {tp.voice}
-                                                    </p>
-                                                )}
-                                            </button>
-
-                                            {/* ── Bouton écoute voix ── */}
-                                            <button
-                                                type="button"
-                                                onClick={() => previewTeacherVoice(tp)}
-                                                title={isPlaying ? 'Arrêter' : `Écouter ${tp.name} (1 crédit)`}
-                                                className={[
-                                                    'shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm',
-                                                    isPlaying
-                                                        ? `bg-gradient-to-br ${tp.gradient} text-white scale-110 shadow-md`
-                                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600',
-                                                ].join(' ')}
-                                            >
-                                                {isPlaying ? (
-                                                    /* Animation onde sonore */
-                                                    <span className="flex items-end gap-[2px] h-4">
-                                                        {[0, 1, 2].map(i => (
-                                                            <span
-                                                                key={i}
-                                                                className="w-[3px] bg-white rounded-full"
-                                                                style={{
-                                                                    height: `${[8, 14, 10][i]}px`,
-                                                                    animation: `soundWave 0.6s ease-in-out ${i * 0.15}s infinite alternate`,
-                                                                }}
-                                                            />
-                                                        ))}
-                                                    </span>
-                                                ) : (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6a7 7 0 010 12M9 10l-.01.01M7.05 10.05a7 7 0 000 3.9M5 9a9 9 0 000 6" />
-                                                    </svg>
-                                                )}
-                                            </button>
-
-                                            {/* Confetti wow */}
-                                            {isWow && (
-                                                <span
-                                                    className="absolute top-1 right-10 text-base pointer-events-none select-none"
-                                                    style={{ animation: 'floatUp 1s ease-out forwards' }}
-                                                >
-                                                    🎉
-                                                </span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Erreur voix */}
-                            {voiceError && (
-                                <p className="text-[10px] text-red-500 text-center px-2">{voiceError}</p>
-                            )}
-
-                            {/* Info coût preview */}
-                            <p className="text-[9px] text-slate-400 text-center">
-                                🔊 La prévisualisation de voix utilise 🪙
-                            </p>
-
-                            {/* Résumé sélection */}
-                            {editVoiceName && (
-                                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
-                                    <span className="text-base">
-                                        {TEACHER_PROFILES.find(t => t.voice === editVoiceName)?.gender === 'F' ? '👩‍🏫' : '👨‍🏫'}
-                                    </span>
-                                    <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">
-                                        {editTeacherName} · voix {editVoiceName}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-
+                     
 
                       <button onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition-transform">
                             <Save className="w-5 h-5"/> {t('dashboard.save_changes') || 'Sauvegarder'}
                         </button>
-                    </div>
+                    </div>*/}
 
 
                     {/* ✅ Section 2 : Compte & Sécurité */}
                     <div className="border-t border-slate-100 dark:border-slate-700 pt-5 space-y-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Compte &amp; Sécurité</p>
-                        <div className="space-y-2">
+                       
+                      <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.username') || 'Nom affiché'}</label>
+                            <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
+                        </div>
+                      
+                      <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1"><Mail className="w-3 h-3"/> Email</label>
                             <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="votre@email.com" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm" />
                         </div>
