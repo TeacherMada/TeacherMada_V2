@@ -555,23 +555,18 @@ const SmartDashboard: React.FC<Props> = ({
                         </div> Remplacé par: */}
 
                       <div className="space-y-3">
-                        <style>{
-                          /*// ─────────────────────────────────────────────────────────────────────────
-// PATCH 6 — Ajouter les keyframes CSS dans le bloc <style> existant
-// Cherchez :  @keyframes slideInRight { ... }
-// Ajoutez à la suite :
-// ─────────────────────────────────────────────────────────────────────────*/}
-
-          @keyframes wowBounce {
-            0%   { transform: scale(1); }
-            30%  { transform: scale(1.07); }
-            60%  { transform: scale(0.97); }
-            100% { transform: scale(1.03); }
-          }
-          @keyframes floatUp {
-            0%   { opacity: 1; transform: translateY(0); }
-            100% { opacity: 0; transform: translateY(-24px); }
-  }</style>
+                        <style>{`
+  @keyframes wowBounce {
+    0%   { transform: scale(1); }
+    30%  { transform: scale(1.07); }
+    60%  { transform: scale(0.97); }
+    100% { transform: scale(1.03); }
+  }
+  @keyframes floatUp {
+    0%   { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-24px); }
+  }
+`}</style>
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1.5">
                                 ✨ {t('dashboard.teacher_select')}
                             </label>
