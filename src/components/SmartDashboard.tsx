@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { UserProfile, ChatMessage, SmartNotification, VoiceName } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3, Lock, Mail, Smartphone } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { localPersistenceService } from '../services/localPersistenceService';
+
 import { toast } from './Toaster';
 import ExamResultView from '../modules/SmartExam/components/ExamResult';
 import { ExamResultDetailed } from '../modules/SmartExam/types';
@@ -22,6 +24,21 @@ interface Props {
   onStartVoice: () => void;
   onStartExam: () => void;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// PATCH 5 — Ajouter la constante TEACHER_PROFILES et les keyframes CSS
+// Ajoutez AVANT la déclaration du composant SmartDashboard (en dehors) :
+// ─────────────────────────────────────────────────────────────────────────
+
+interface TeacherProfile { voice: VoiceName; name: string; badge: string; desc: string; seed: string; gradient: string; }
+
+const TEACHER_PROFILES: TeacherProfile[] = [
+    { voice: 'Kore',   name: 'Prof. Amina',  badge: '♀ Douce',     desc: 'Pédagogie bienveillante, idéale débutants.',      seed: 'amina-kore-soft',    gradient: 'from-pink-400 to-rose-500'    },
+    { voice: 'Zephyr', name: 'Prof. Clara',  badge: '♀ Dynamique', desc: 'Coaching énergique pour progresser vite.',        seed: 'clara-zephyr-dyn',   gradient: 'from-violet-400 to-indigo-500'},
+    { voice: 'Puck',   name: 'Prof. Thomas', badge: '♂ Chaleureux',desc: 'Accent natif, conversations authentiques.',       seed: 'thomas-puck-warm',   gradient: 'from-amber-400 to-orange-500' },
+    { voice: 'Charon', name: 'Prof. André',  badge: '♂ Strict',    desc: 'Prononciation soignée, grammaire rigoureuse.',    seed: 'andre-charon-str',   gradient: 'from-slate-500 to-slate-700'  },
+    { voice: 'Fenrir', name: 'Prof. Luca',   badge: '♂ Immersif',  desc: 'Méthode immersive, résultats rapides.',           seed: 'luca-fenrir-imm',    gradient: 'from-emerald-400 to-teal-500' },
+];
 
 const SmartDashboard: React.FC<Props> = ({ 
     user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, 
@@ -59,6 +76,8 @@ const SmartDashboard: React.FC<Props> = ({
   const [editName, setEditName] = useState(user?.username || '');
   const [editTeacherName, setEditTeacherName] = useState(user?.preferences?.teacherName || 'TeacherMada');
   const [editVoiceName, setEditVoiceName] = useState<VoiceName>(user?.preferences?.voiceName || 'Kore');
+  const [justSelected, setJustSelected] = useState<VoiceName | null>(null);
+  
 
   // ✅ NOUVEAU : Edit Compte (email / téléphone / mot de passe)
   const [editEmail, setEditEmail] = useState(user?.email || '');
@@ -125,6 +144,7 @@ const SmartDashboard: React.FC<Props> = ({
           } as any
       };
       await storageService.saveUserProfile(updated);
+      localPersistenceService.savePreferences(user.id, updated.preferences || {}); //Added
       onUpdateUser(updated);
       toast.success(t('common.success'));
       setActiveTab('menu');
@@ -522,7 +542,8 @@ const SmartDashboard: React.FC<Props> = ({
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.teacher_name') || 'Nom du Professeur'}</label>
                             <input type="text" value={editTeacherName} onChange={e => setEditTeacherName(e.target.value)} placeholder="TeacherMada" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
                         </div>
-                        <div className="space-y-2">
+                        
+                      {/*<div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.voice_style') || 'Style de Voix'}</label>
                             <select value={editVoiceName} onChange={e => setEditVoiceName(e.target.value as VoiceName)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all appearance-none">
                                 <option value="Kore">Kore (Femme, Douce)</option>
@@ -531,7 +552,96 @@ const SmartDashboard: React.FC<Props> = ({
                                 <option value="Charon">Charon (Homme, Grave)</option>
                                 <option value="Fenrir">Fenrir (Homme, Énergique)</option>
                             </select>
-                        </div>
+                        </div> Remplacé par: */}
+
+                      <div className="space-y-3">
+                        <style>{
+                          /*// ─────────────────────────────────────────────────────────────────────────
+// PATCH 6 — Ajouter les keyframes CSS dans le bloc <style> existant
+// Cherchez :  @keyframes slideInRight { ... }
+// Ajoutez à la suite :
+// ─────────────────────────────────────────────────────────────────────────*/}
+
+          @keyframes wowBounce {
+            0%   { transform: scale(1); }
+            30%  { transform: scale(1.07); }
+            60%  { transform: scale(0.97); }
+            100% { transform: scale(1.03); }
+          }
+          @keyframes floatUp {
+            0%   { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-24px); }
+  }</style>
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1.5">
+                                ✨ {t('dashboard.teacher_select')}
+                            </label>
+                            <p className="text-[10px] text-slate-400 ml-2 -mt-1">{t('dashboard.teacher_select_subtitle')}</p>
+
+                            <div className="flex flex-col gap-2">
+                                {TEACHER_PROFILES.map(tp => {
+                                    const isSelected = editVoiceName === tp.voice;
+                                    const isWow = justSelected === tp.voice;
+                                    return (
+                                        <button
+                                            key={tp.voice}
+                                            type="button"
+                                            onClick={() => {
+                                                setEditVoiceName(tp.voice);
+                                                setEditTeacherName(tp.name);
+                                                setJustSelected(tp.voice);
+                                                setTimeout(() => setJustSelected(null), 1200);
+                                            }}
+                                            className={[
+                                                'relative flex items-center gap-3 p-3 rounded-2xl border-2 text-left transition-all duration-200',
+                                                isSelected
+                                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40'
+                                                    : 'border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300',
+                                                isWow ? 'scale-[1.03]' : 'scale-100',
+                                            ].join(' ')}
+                                            style={isWow ? { animation: 'wowBounce 0.5s ease-out' } : undefined}
+                                        >
+                                            {/* Avatar */}
+                                            <div className={`relative w-12 h-12 rounded-full p-0.5 shrink-0 ${isSelected ? `bg-gradient-to-br ${tp.gradient}` : 'bg-slate-200 dark:bg-slate-700'}`}>
+                                                <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-slate-900">
+                                                    <img
+                                                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${tp.seed}`}
+                                                        alt={tp.name}
+                                                        className="w-full h-full object-cover"
+                                                        loading="lazy"
+                                                    />
+                                                </div>
+                                                {isSelected && (
+                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-indigo-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow">✓</span>
+                                                )}
+                                            </div>
+
+                                            {/* Infos */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className={`font-black text-sm ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-white'}`}>{tp.name}</span>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white bg-gradient-to-r ${tp.gradient}`}>{tp.badge}</span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{tp.desc}</p>
+                                            </div>
+
+                                            {/* Confetti wow */}
+                                            {isWow && (
+                                                <span className="absolute top-1 right-2 text-base pointer-events-none select-none" style={{ animation: 'floatUp 1s ease-out forwards' }}>🎉</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Résumé sélection */}
+                            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800 text-xs text-indigo-600 dark:text-indigo-400 font-semibold">
+                                <span>🔊</span>
+                                <span>{editTeacherName} · {editVoiceName}</span>
+                            </div>
+                        </div> 
+
+
+                      
                         <button onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition-transform">
                             <Save className="w-5 h-5"/> {t('dashboard.save_changes') || 'Sauvegarder'}
                         </button>
