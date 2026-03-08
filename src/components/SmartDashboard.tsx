@@ -1,7 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage, SmartNotification, VoiceName } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3, Lock, Mail, Smartphone } from 'lucide-react';
 import { storageService } from '../services/storageService';
+
+import { generateSpeech } from '../services/geminiService';
+import { creditService, CREDIT_COSTS } from '../services/creditService';
+
 import { localPersistenceService } from '../services/localPersistenceService';
 
 import { toast } from './Toaster';
@@ -30,15 +34,131 @@ interface Props {
 // Ajoutez AVANT la déclaration du composant SmartDashboard (en dehors) :
 // ─────────────────────────────────────────────────────────────────────────
 
-interface TeacherProfile { voice: VoiceName; name: string; badge: string; desc: string; seed: string; gradient: string; }
+interface TeacherProfile {
+    voice: VoiceName;
+    name: string;
+    badge: string;
+    desc: string;
+    photo: string;       // ← vraie photo réaliste
+    gradient: string;
+    gender: 'F' | 'M';
+}
 
 const TEACHER_PROFILES: TeacherProfile[] = [
-    { voice: 'Kore',   name: 'Prof. Amina',  badge: '♀ Douce',     desc: 'Pédagogie bienveillante, idéale débutants.',      seed: 'amina-kore-soft',    gradient: 'from-pink-400 to-rose-500'    },
-    { voice: 'Zephyr', name: 'Prof. Clara',  badge: '♀ Dynamique', desc: 'Coaching énergique pour progresser vite.',        seed: 'clara-zephyr-dyn',   gradient: 'from-violet-400 to-indigo-500'},
-    { voice: 'Puck',   name: 'Prof. Thomas', badge: '♂ Chaleureux',desc: 'Accent natif, conversations authentiques.',       seed: 'thomas-puck-warm',   gradient: 'from-amber-400 to-orange-500' },
-    { voice: 'Charon', name: 'Prof. André',  badge: '♂ Strict',    desc: 'Prononciation soignée, grammaire rigoureuse.',    seed: 'andre-charon-str',   gradient: 'from-slate-500 to-slate-700'  },
-    { voice: 'Fenrir', name: 'Prof. Luca',   badge: '♂ Immersif',  desc: 'Méthode immersive, résultats rapides.',           seed: 'luca-fenrir-imm',    gradient: 'from-emerald-400 to-teal-500' },
+    {
+        voice: 'Kore',
+        name: 'Prof. Amina',
+        badge: '♀ Douce & Patiente',
+        desc: 'Pédagogie bienveillante, idéale pour les débutants.',
+        photo: 'https://randomuser.me/api/portraits/women/65.jpg',
+        gradient: 'from-pink-400 to-rose-500',
+        gender: 'F',
+    },
+    {
+        voice: 'Zephyr',
+        name: 'Prof. Clara',
+        badge: '♀ Dynamique',
+        desc: 'Coaching énergique pour progresser rapidement.',
+        photo: 'https://randomuser.me/api/portraits/women/44.jpg',
+        gradient: 'from-violet-400 to-indigo-500',
+        gender: 'F',
+    },
+    {
+        voice: 'Puck',
+        name: 'Prof. Thomas',
+        badge: '♂ Chaleureux & Naturel',
+        desc: 'Accent natif, conversations authentiques.',
+        photo: 'https://randomuser.me/api/portraits/men/32.jpg',
+        gradient: 'from-amber-400 to-orange-500',
+        gender: 'M',
+    },
+    {
+        voice: 'Charon',
+        name: 'Prof. André',
+        badge: '♂ Strict & Précis',
+        desc: 'Grammaire rigoureuse et prononciation soignée.',
+        photo: 'https://randomuser.me/api/portraits/men/75.jpg',
+        gradient: 'from-slate-500 to-slate-700',
+        gender: 'M',
+    },
+    {
+        voice: 'Fenrir',
+        name: 'Prof. Luca',
+        badge: '♂ Immersif',
+        desc: 'Méthode immersive, résultats rapides.',
+        photo: 'https://randomuser.me/api/portraits/men/54.jpg',
+        gradient: 'from-emerald-400 to-teal-500',
+        gender: 'M',
+    },
 ];
+
+// ─── Génère l'intro du professeur dans la langue cible ─────────────────
+const getTeacherIntro = (
+    teacherName: string,
+    username: string,
+    targetLanguage: string,
+    gender: 'F' | 'M'
+): string => {
+    const lang = (targetLanguage || '').toLowerCase();
+    const him = gender === 'F' ? 'votre professeure' : 'votre professeur';
+
+    // Anglais
+    if (lang.includes('anglais') || lang.includes('english')) {
+        return gender === 'F'
+            ? `Hello ${username}! I'm ${teacherName}, your personal English teacher. I'll guide you step by step toward fluency. I'm so glad to work with you!`
+            : `Hello ${username}! I'm ${teacherName}, your dedicated English teacher. Together, we'll make your English skills shine. Let's get started!`;
+    }
+    // Français
+    if (lang.includes('français') || lang.includes('french')) {
+        return gender === 'F'
+            ? `Bonjour ${username} ! Je suis ${teacherName}, votre professeure de français. Je suis ravie de vous accompagner dans cet apprentissage passionnant. À nous deux !`
+            : `Bonjour ${username} ! Je suis ${teacherName}, votre professeur de français. Ensemble, nous allons explorer la langue française avec méthode et plaisir. Allons-y !`;
+    }
+    // Espagnol
+    if (lang.includes('espagnol') || lang.includes('spanish')) {
+        return gender === 'F'
+            ? `¡Hola ${username}! Soy ${teacherName}, tu profesora de español. Estoy encantada de acompañarte en este viaje. ¡Vamos a aprender juntos!`
+            : `¡Hola ${username}! Soy ${teacherName}, tu profesor de español. Me alegra mucho trabajar contigo. ¡Empecemos esta aventura!`;
+    }
+    // Allemand
+    if (lang.includes('allemand') || lang.includes('german')) {
+        return gender === 'F'
+            ? `Hallo ${username}! Ich bin ${teacherName}, Ihre Deutschlehrerin. Ich freue mich sehr, Ihnen beim Deutschlernen zu helfen!`
+            : `Hallo ${username}! Ich bin ${teacherName}, Ihr Deutschlehrer. Gemeinsam werden wir Ihr Deutsch auf ein neues Niveau bringen!`;
+    }
+    // Italien
+    if (lang.includes('italien') || lang.includes('italian')) {
+        return gender === 'F'
+            ? `Ciao ${username}! Sono ${teacherName}, la tua insegnante di italiano. Sono felice di aiutarti in questo percorso linguistico!`
+            : `Ciao ${username}! Sono ${teacherName}, il tuo insegnante di italiano. Insieme, scopriremo la bellezza della lingua italiana!`;
+    }
+    // Portugais
+    if (lang.includes('portugais') || lang.includes('portuguese')) {
+        return gender === 'F'
+            ? `Olá ${username}! Eu sou ${teacherName}, sua professora de português. Estou animada para trabalhar com você nessa jornada!`
+            : `Olá ${username}! Eu sou ${teacherName}, seu professor de português. Juntos, vamos alcançar a fluência que você deseja!`;
+    }
+    // Japonais
+    if (lang.includes('japonais') || lang.includes('japanese')) {
+        return `こんにちは、${username}さん！私は${teacherName}先生です。日本語の勉強を一緒に楽しみましょう！`;
+    }
+    // Chinois
+    if (lang.includes('chinois') || lang.includes('chinese')) {
+        return `你好，${username}！我是${teacherName}老师。我很高兴能帮助你学习中文，让我们开始吧！`;
+    }
+    // Arabe
+    if (lang.includes('arabe') || lang.includes('arabic')) {
+        return `مرحباً ${username}! أنا ${teacherName}، أستاذك في اللغة العربية. يسعدني مساعدتك في تعلم هذه اللغة الجميلة!`;
+    }
+    // Malagasy
+    if (lang.includes('malagasy')) {
+        return gender === 'F'
+            ? `Salama ${username}! Izaho no ${teacherName}, mpampianatra Malagasy anao. Faly aho miara-miasa aminao!`
+            : `Salama ${username}! Izaho no ${teacherName}, mpampianatra Malagasy anao. Andao isika hianatra tsara!`;
+    }
+    // Fallback anglais
+    return `Hello ${username}! I'm ${teacherName}, your dedicated language teacher. I'm thrilled to guide you on your learning journey. Let's make every lesson count!`;
+};
 
 const SmartDashboard: React.FC<Props> = ({ 
     user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, 
@@ -77,6 +197,16 @@ const SmartDashboard: React.FC<Props> = ({
   const [editTeacherName, setEditTeacherName] = useState(user?.preferences?.teacherName || 'TeacherMada');
   const [editVoiceName, setEditVoiceName] = useState<VoiceName>(user?.preferences?.voiceName || 'Kore');
   const [justSelected, setJustSelected] = useState<VoiceName | null>(null);
+  // ═══════════════════════════════════════════════════════════════════════
+// PATCH C — États à ajouter dans le composant SmartDashboard
+// Ajoutez ces lignes juste après les autres useState du composant :
+//   const [justSelected, setJustSelected] = ...
+// ═══════════════════════════════════════════════════════════════════════
+
+  const [playingVoice, setPlayingVoice]   = useState<VoiceName | null>(null);
+  const [voiceError, setVoiceError]       = useState<string | null>(null);
+  const audioCtxRef                       = useRef<AudioContext | null>(null);
+  const audioSourceRef                    = useRef<AudioBufferSourceNode | null>(null);
   
 
   // ✅ NOUVEAU : Edit Compte (email / téléphone / mot de passe)
@@ -149,6 +279,86 @@ const SmartDashboard: React.FC<Props> = ({
       toast.success(t('common.success'));
       setActiveTab('menu');
   };
+
+
+
+
+  
+// ═══════════════════════════════════════════════════════════════════════
+// PATCH D — Fonction previewTeacherVoice à ajouter dans le composant
+// Ajoutez-la après handleSelectTeacher (ou à la suite des autres handlers)
+// ═══════════════════════════════════════════════════════════════════════
+
+  const previewTeacherVoice = async (teacher: TeacherProfile) => {
+      // Stop si on rejoue le même
+      if (playingVoice === teacher.voice) {
+          audioSourceRef.current?.stop();
+          audioSourceRef.current = null;
+          setPlayingVoice(null);
+          return;
+      }
+      // Stop l'audio précédent
+      audioSourceRef.current?.stop();
+      audioSourceRef.current = null;
+
+      setVoiceError(null);
+      setPlayingVoice(teacher.voice);
+
+      const targetLang  = user?.preferences?.targetLanguage || 'Anglais';
+      const username    = user?.username || 'cher élève';
+      const introText   = getTeacherIntro(teacher.name, username, targetLang, teacher.gender);
+
+      try {
+          // Appel Gemini TTS (coût : AUDIO_PRONUNCIATION = 1 crédit)
+          const pcmBuffer = await generateSpeech(
+              introText,
+              teacher.voice,
+              CREDIT_COSTS.AUDIO_PRONUNCIATION
+          );
+
+          if (!pcmBuffer) {
+              // Fallback : Web Speech API (gratuit)
+              const utterance = new SpeechSynthesisUtterance(introText);
+              utterance.rate  = 0.92;
+              utterance.pitch = teacher.gender === 'F' ? 1.15 : 0.88;
+              utterance.onend = () => setPlayingVoice(null);
+              utterance.onerror = () => setPlayingVoice(null);
+              window.speechSynthesis.cancel();
+              window.speechSynthesis.speak(utterance);
+              return;
+          }
+
+          // Lecture PCM Gemini
+          if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+              audioCtxRef.current = new AudioContext();
+          }
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') await ctx.resume();
+
+          // PCM 16-bit → Float32 → AudioBuffer (30 000 Hz)
+          const pcm16   = new Int16Array(pcmBuffer);
+          const float32 = new Float32Array(pcm16.length);
+          for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
+          const audioBuffer = ctx.createBuffer(1, float32.length, 30000);
+          audioBuffer.copyToChannel(float32, 0);
+
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          source.onended = () => {
+              setPlayingVoice(null);
+              audioSourceRef.current = null;
+          };
+          source.start();
+          audioSourceRef.current = source;
+
+      } catch (e) {
+          console.warn('[VoicePreview] Erreur:', e);
+          setVoiceError('Erreur de lecture — réessayez.');
+          setPlayingVoice(null);
+      }
+  };
+  
 
   // ✅ NOUVEAU : Sauvegarder infos du compte (email / téléphone / mot de passe)
   const handleSaveAccount = async () => {
@@ -556,91 +766,185 @@ const SmartDashboard: React.FC<Props> = ({
 
                       <div className="space-y-3">
                         <style>{`
-  @keyframes wowBounce {
-    0%   { transform: scale(1); }
-    30%  { transform: scale(1.07); }
-    60%  { transform: scale(0.97); }
-    100% { transform: scale(1.03); }
-  }
-  @keyframes floatUp {
-    0%   { opacity: 1; transform: translateY(0); }
-    100% { opacity: 0; transform: translateY(-24px); }
-  }
-`}</style>
+                        @keyframes soundWave {
+            from { transform: scaleY(0.4); opacity: 0.6; }
+            to   { transform: scaleY(1);   opacity: 1;   }
+          }
+          @keyframes wowBounce {
+            0%   { transform: scale(1); }
+            30%  { transform: scale(1.04); }
+            70%  { transform: scale(0.98); }
+            100% { transform: scale(1.02); }
+          }
+          @keyframes floatUp {
+            0%   { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-28px) scale(1.5); }
+          }
+                        `}</style>
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1.5">
-                                ✨ {t('dashboard.teacher_select')}
+                                ✨ {t('dashboard.teacher_select') || 'Votre Professeur'}
                             </label>
-                            <p className="text-[10px] text-slate-400 ml-2 -mt-1">{t('dashboard.teacher_select_subtitle')}</p>
+                            <p className="text-[10px] text-slate-400 ml-2 -mt-1">
+                                {t('dashboard.teacher_select_subtitle') || 'Cliquez pour sélectionner · Bouton 🔊 pour écouter'}
+                            </p>
 
-                            <div className="flex flex-col gap-2">
+                            <div className="flex flex-col gap-2.5">
                                 {TEACHER_PROFILES.map(tp => {
-                                    const isSelected = editVoiceName === tp.voice;
-                                    const isWow = justSelected === tp.voice;
-                                    return (
-                                        <button
-                                            key={tp.voice}
-                                            type="button"
-                                            onClick={() => {
-                                                setEditVoiceName(tp.voice);
-                                                setEditTeacherName(tp.name);
-                                                setJustSelected(tp.voice);
-                                                setTimeout(() => setJustSelected(null), 1200);
-                                            }}
-                                            className={[
-                                                'relative flex items-center gap-3 p-3 rounded-2xl border-2 text-left transition-all duration-200',
-                                                isSelected
-                                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40'
-                                                    : 'border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300',
-                                                isWow ? 'scale-[1.03]' : 'scale-100',
-                                            ].join(' ')}
-                                            style={isWow ? { animation: 'wowBounce 0.5s ease-out' } : undefined}
-                                        >
-                                            {/* Avatar */}
-                                            <div className={`relative w-12 h-12 rounded-full p-0.5 shrink-0 ${isSelected ? `bg-gradient-to-br ${tp.gradient}` : 'bg-slate-200 dark:bg-slate-700'}`}>
-                                                <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-slate-900">
-                                                    <img
-                                                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${tp.seed}`}
-                                                        alt={tp.name}
-                                                        className="w-full h-full object-cover"
-                                                        loading="lazy"
-                                                    />
-                                                </div>
-                                                {isSelected && (
-                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-indigo-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow">✓</span>
-                                                )}
-                                            </div>
+                                    const isSelected  = editVoiceName === tp.voice;
+                                    const isPlaying   = playingVoice === tp.voice;
+                                    const isWow       = justSelected === tp.voice;
 
-                                            {/* Infos */}
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className={`font-black text-sm ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-white'}`}>{tp.name}</span>
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white bg-gradient-to-r ${tp.gradient}`}>{tp.badge}</span>
+                                    return (
+                                        <div
+                                            key={tp.voice}
+                                            className={[
+                                                'relative flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-200 overflow-hidden',
+                                                isSelected
+                                                    ? 'border-indigo-500 shadow-lg shadow-indigo-200/40 dark:shadow-indigo-900/40'
+                                                    : 'border-slate-100 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600',
+                                                isWow ? 'scale-[1.02]' : 'scale-100',
+                                            ].join(' ')}
+                                            style={isSelected ? { background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, transparent 60%)' } : undefined}
+                                        >
+                                            {/* ── Photo réaliste ── */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditVoiceName(tp.voice);
+                                                    setEditTeacherName(tp.name);
+                                                    setJustSelected(tp.voice);
+                                                    setTimeout(() => setJustSelected(null), 1200);
+                                                }}
+                                                className="relative shrink-0 group/photo"
+                                                title={`Sélectionner ${tp.name}`}
+                                            >
+                                                <div className={`w-14 h-14 rounded-full p-0.5 transition-all ${isSelected ? `bg-gradient-to-br ${tp.gradient}` : 'bg-slate-200 dark:bg-slate-700'}`}>
+                                                    <div className="w-full h-full rounded-full overflow-hidden bg-slate-100">
+                                                        <img
+                                                            src={tp.photo}
+                                                            alt={tp.name}
+                                                            className={`w-full h-full object-cover transition-transform duration-200 ${isSelected ? 'scale-105' : 'group-hover/photo:scale-105'}`}
+                                                            loading="lazy"
+                                                            onError={(e) => {
+                                                                // Fallback DiceBear si photo indisponible
+                                                                (e.target as HTMLImageElement).src = `https://api.dicebear.com/9.x/micah/svg?seed=${tp.name}`;
+                                                            }}
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{tp.desc}</p>
-                                            </div>
+                                                {/* Badge sélectionné */}
+                                                {isSelected && (
+                                                    <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center text-white text-[9px] font-black shadow-md border-2 border-white dark:border-slate-900">
+                                                        ✓
+                                                    </span>
+                                                )}
+                                            </button>
+
+                                            {/* ── Infos prof ── */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditVoiceName(tp.voice);
+                                                    setEditTeacherName(tp.name);
+                                                    setJustSelected(tp.voice);
+                                                    setTimeout(() => setJustSelected(null), 1200);
+                                                }}
+                                                className="flex-1 min-w-0 text-left"
+                                            >
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className={`font-black text-sm transition-colors ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-white'}`}>
+                                                        {tp.name}
+                                                    </span>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white bg-gradient-to-r ${tp.gradient} shadow-sm`}>
+                                                        {tp.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                                                    {tp.desc}
+                                                </p>
+                                                {isSelected && (
+                                                    <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">
+                                                        ✓ Sélectionné · voix {tp.voice}
+                                                    </p>
+                                                )}
+                                            </button>
+
+                                            {/* ── Bouton écoute voix ── */}
+                                            <button
+                                                type="button"
+                                                onClick={() => previewTeacherVoice(tp)}
+                                                title={isPlaying ? 'Arrêter' : `Écouter ${tp.name} (1 crédit)`}
+                                                className={[
+                                                    'shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 shadow-sm',
+                                                    isPlaying
+                                                        ? `bg-gradient-to-br ${tp.gradient} text-white scale-110 shadow-md`
+                                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600',
+                                                ].join(' ')}
+                                            >
+                                                {isPlaying ? (
+                                                    /* Animation onde sonore */
+                                                    <span className="flex items-end gap-[2px] h-4">
+                                                        {[0, 1, 2].map(i => (
+                                                            <span
+                                                                key={i}
+                                                                className="w-[3px] bg-white rounded-full"
+                                                                style={{
+                                                                    height: `${[8, 14, 10][i]}px`,
+                                                                    animation: `soundWave 0.6s ease-in-out ${i * 0.15}s infinite alternate`,
+                                                                }}
+                                                            />
+                                                        ))}
+                                                    </span>
+                                                ) : (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6a7 7 0 010 12M9 10l-.01.01M7.05 10.05a7 7 0 000 3.9M5 9a9 9 0 000 6" />
+                                                    </svg>
+                                                )}
+                                            </button>
 
                                             {/* Confetti wow */}
                                             {isWow && (
-                                                <span className="absolute top-1 right-2 text-base pointer-events-none select-none" style={{ animation: 'floatUp 1s ease-out forwards' }}>🎉</span>
+                                                <span
+                                                    className="absolute top-1 right-10 text-base pointer-events-none select-none"
+                                                    style={{ animation: 'floatUp 1s ease-out forwards' }}
+                                                >
+                                                    🎉
+                                                </span>
                                             )}
-                                        </button>
+                                        </div>
                                     );
                                 })}
                             </div>
 
+                            {/* Erreur voix */}
+                            {voiceError && (
+                                <p className="text-[10px] text-red-500 text-center px-2">{voiceError}</p>
+                            )}
+
+                            {/* Info coût preview */}
+                            <p className="text-[9px] text-slate-400 text-center">
+                                🔊 La prévisualisation de voix utilise 🪙
+                            </p>
+
                             {/* Résumé sélection */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800 text-xs text-indigo-600 dark:text-indigo-400 font-semibold">
-                                <span>🔊</span>
-                                <span>{editTeacherName} · {editVoiceName}</span>
-                            </div>
-                        </div> 
+                            {editVoiceName && (
+                                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                                    <span className="text-base">
+                                        {TEACHER_PROFILES.find(t => t.voice === editVoiceName)?.gender === 'F' ? '👩‍🏫' : '👨‍🏫'}
+                                    </span>
+                                    <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {editTeacherName} · voix {editVoiceName}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
 
 
-                      
-                        <button onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition-transform">
+                      <button onClick={handleSaveProfile} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition-transform">
                             <Save className="w-5 h-5"/> {t('dashboard.save_changes') || 'Sauvegarder'}
                         </button>
                     </div>
+
 
                     {/* ✅ Section 2 : Compte & Sécurité */}
                     <div className="border-t border-slate-100 dark:border-slate-700 pt-5 space-y-4">
