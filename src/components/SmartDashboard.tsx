@@ -366,6 +366,11 @@ const SmartDashboard: React.FC<Props> = ({
       setIsSavingAccount(true);
       try {
           const updates: any = {};
+
+        
+if (editName.trim() && editName.trim() !== user.username) updates.username = editName.trim();
+
+        
           if (editEmail.trim() && editEmail.trim() !== (user.email || '')) {
               updates.email = editEmail.trim();
           }
@@ -946,7 +951,21 @@ const SmartDashboard: React.FC<Props> = ({
                     {/* ✅ Section 2 : Compte & Sécurité */}
                     <div className="border-t border-slate-100 dark:border-slate-700 pt-5 space-y-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Compte &amp; Sécurité</p>
-                       
+
+
+                      <div className="space-y-2">
+    <label className="text-xs font-bold text-slate-500 uppercase ml-2 flex items-center gap-1">
+        <User className="w-3 h-3"/> {t('dashboard.username') || "Nom d'utilisateur"}
+    </label>
+    <input
+        type="text"
+        value={editName}
+        onChange={e => setEditName(e.target.value)}
+        placeholder="Votre nom pour le Certificat"
+        className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all text-sm"
+    />
+</div>
+                      
                       <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase ml-2">{t('dashboard.username') || 'Nom affiché'}</label>
                             <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold border-transparent border focus:bg-white dark:focus:bg-slate-900 transition-all" />
