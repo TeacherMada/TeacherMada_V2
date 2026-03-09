@@ -45,12 +45,11 @@ const safeLocalSet = (key: string, value: string): boolean => {
     }
 };
 
-// ── ✅ FIX 1 : mapProfile — ajout phoneNumber ────────────────────────────────
 const mapProfile = (data: any): UserProfile => ({
     id: data.id,
     username: data.username || "Utilisateur",
     email: data.email,
-    phoneNumber: data.phone_number || '',  // ✅ AJOUT
+    phoneNumber: data.phone_number || '',
     role: data.role || 'user',
     credits: data.credits ?? 0,
     preferences: data.preferences,
@@ -91,7 +90,6 @@ export const storageService = {
       };
   },
 
-  // ── Realtime Supabase — requis par App.tsx ───────────────────────────────
   subscribeToRemoteChanges: (userId: string) => {
       if (!isSupabaseConfigured()) return () => {};
 
@@ -164,13 +162,11 @@ export const storageService = {
       }
   },
 
-  // ── ✅ FIX 2 : login — recherche par username OU téléphone ───────────────
   login: async (usernameOrEmail: string, password: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
       if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
 
       let email = usernameOrEmail.trim();
 
-      // Si ce n'est pas un email, chercher dans profiles par username ou téléphone
       if (!email.includes('@')) {
           try {
               const isPhone = /^[0-9+\s\-]{7,15}$/.test(email.replace(/\s/g, ''));
@@ -187,7 +183,6 @@ export const storageService = {
                   email = data.email;
               } else {
                   if (isPhone) {
-                      // Si téléphone, essayer aussi par username comme fallback
                       const { data: byUser } = await supabase
                           .from('profiles')
                           .select('email')
@@ -263,8 +258,6 @@ export const storageService = {
       }));
   },
 
-  // ── ✅ FIX 3 : saveUserWeakness — appel Supabase direct (pas syncQueue)
-  // Résout l'erreur TS2345 : 'UPSERT_WEAKNESS' absent de SyncOperationType
   saveUserWeakness: async (userId: string, category: string, tag: string): Promise<void> => {
       if (!isSupabaseConfigured()) return;
       try {
@@ -321,7 +314,6 @@ export const storageService = {
       }
   },
 
-  // ── ✅ FIX 4 : logout — vider aussi les sessions du chat ─────────────────
   logout: async () => {
       try {
           await supabase.auth.signOut();
@@ -330,13 +322,11 @@ export const storageService = {
       }
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       localStorage.removeItem('tm_v3_current_user_id');
-      // ✅ Vider les sessions du chat (évite fuite de données entre utilisateurs)
       Object.keys(localStorage)
           .filter(k => k.startsWith('tm_v3_session_'))
           .forEach(k => localStorage.removeItem(k));
   },
 
-  // ── ✅ FIX 5 : updateAccountInfo — nouvelle méthode (profil + sécurité) ──
   updateAccountInfo: async (
       userId: string,
       updates: {
@@ -350,7 +340,6 @@ export const storageService = {
       if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré." };
 
       try {
-          // 1. Changer le mot de passe si demandé
           if (updates.newPassword && updates.currentPassword) {
               const { data: sessionData } = await supabase.auth.getSession();
               const currentEmail = sessionData?.session?.user?.email;
@@ -366,13 +355,11 @@ export const storageService = {
               if (pwError) return { success: false, error: pwError.message };
           }
 
-          // 2. Changer l'email Supabase Auth si demandé
           if (updates.email) {
               const { error: emailError } = await supabase.auth.updateUser({ email: updates.email });
               if (emailError) return { success: false, error: emailError.message };
           }
 
-          // 3. Mettre à jour la table profiles
           const profileUpdates: any = { updated_at: new Date().toISOString() };
           if (updates.username) profileUpdates.username = updates.username.trim();
           if (updates.email) profileUpdates.email = updates.email.trim();
@@ -386,7 +373,6 @@ export const storageService = {
               if (dbError) return { success: false, error: dbError.message };
           }
 
-          // 4. Mettre à jour le cache localStorage
           const local = storageService.getLocalUser();
           if (local && local.id === userId) {
               const updated: any = { ...local };
@@ -757,7 +743,6 @@ export const storageService = {
       return local ? JSON.parse(local) : [];
   },
 
-  // ── requis par ChatInterface.tsx ─────────────────────────────────────────
   getUnreadCount: async (userId: string): Promise<number> => {
       const notifs = await storageService.getNotifications(userId);
       return notifs.filter(n => !n.read).length;
@@ -885,110 +870,117 @@ export const storageService = {
       return `${SESSION_PREFIX}${userId}_${cleanLang}_${prefs.level}_${cleanMode}`;
   },
 
-    //debut getOrCreateSession ici:
+  // ✅ CORRECTION : async/await complet, pas de .catch() chaîné sur PromiseLike
   getOrCreateSession: async (userId: string, prefs: UserPreferences): Promise<LearningSession> => {
-    const key = storageService.getSessionKey(userId, prefs);
-    const cleanLang = prefs.targetLanguage.split(' ')[0];
+      const key = storageService.getSessionKey(userId, prefs);
+      const cleanLang = prefs.targetLanguage.split(' ')[0];
 
-    // ── 1. Charger le local immédiatement (offline-first) ──────────────
-    const localData = localStorage.getItem(key);
-    let localSession: LearningSession | null = null;
-    try {
-        localSession = localData ? JSON.parse(localData) : null;
-    } catch { localSession = null; }
+      // ── 1. Charger le local immédiatement (offline-first) ──────────────
+      const localData = localStorage.getItem(key);
+      let localSession: LearningSession | null = null;
+      try {
+          localSession = localData ? JSON.parse(localData) : null;
+      } catch { localSession = null; }
 
-    // ── 2. Sync Supabase en arrière-plan (non-bloquant) ────────────────
-    if (isSupabaseConfigured()) {
-        supabase.from('learning_sessions').select('*').eq('id', key).single()
-            .then(({ data, error }) => {
-                if (error || !data) return;
+      // ── 2. Sync Supabase en arrière-plan (non-bloquant, sans .catch chaîné)
+      if (isSupabaseConfigured()) {
+          // Lancer en fire-and-forget avec async IIFE pour gérer les erreurs proprement
+          (async () => {
+              try {
+                  const { data, error } = await supabase
+                      .from('learning_sessions')
+                      .select('*')
+                      .eq('id', key)
+                      .single();
 
-                const remoteMessages: any[] = data.messages || [];
-                const remoteUpdatedAt = new Date(data.updated_at).getTime();
-                const localUpdatedAt  = localSession?.updatedAt || 0;
-                const localMsgCount   = localSession?.messages?.length || 0;
+                  if (error || !data) return;
 
-                // ✅ On prend le remote SEULEMENT si :
-                //    - plus récent ET a au moins autant de messages que le local
-                //    (évite d'écraser local avec une version vide du serveur)
-                if (remoteUpdatedAt > localUpdatedAt && remoteMessages.length >= localMsgCount) {
-                    const remoteSession: LearningSession = {
-                        id:        data.id,
-                        userId:    data.user_id,
-                        type:      (data.type || 'lesson') as any,
-                        language:  data.target_language || cleanLang,
-                        level:     data.level,
-                        messages:  remoteMessages,
-                        updatedAt: remoteUpdatedAt,
-                    };
-                    // Sauvegarder localement (sans déclencher un nouveau sync)
-                    try { localStorage.setItem(key, JSON.stringify(remoteSession)); } catch { /* quota */ }
-                    window.dispatchEvent(new CustomEvent('tm_session_updated', { detail: remoteSession }));
-                }
-            })
-            .catch(() => { /* hors-ligne, ignoré */ });
-    }
+                  const remoteMessages: any[] = data.messages || [];
+                  const remoteUpdatedAt = new Date(data.updated_at).getTime();
+                  const localUpdatedAt  = localSession?.updatedAt || 0;
+                  const localMsgCount   = localSession?.messages?.length || 0;
 
-    // ── 3. Retourner session locale si elle existe ─────────────────────
-    if (localSession) return localSession;
+                  // Prendre remote SEULEMENT si plus récent ET au moins autant de messages
+                  if (remoteUpdatedAt > localUpdatedAt && remoteMessages.length >= localMsgCount) {
+                      const remoteSession: LearningSession = {
+                          id:        data.id,
+                          userId:    data.user_id,
+                          type:      (data.mode || 'lesson') as any,
+                          language:  data.target_language || cleanLang,
+                          level:     data.level,
+                          messages:  remoteMessages,
+                          updatedAt: remoteUpdatedAt,
+                      };
+                      try { localStorage.setItem(key, JSON.stringify(remoteSession)); } catch { /* quota */ }
+                      window.dispatchEvent(new CustomEvent('tm_session_updated', { detail: remoteSession }));
+                  }
+              } catch (e) {
+                  // Hors-ligne ou erreur réseau — ignoré silencieusement
+                  console.warn('[Session] Sync arrière-plan échouée (ignoré):', e);
+              }
+          })();
+      }
 
-    // ── 4. Créer une nouvelle session ──────────────────────────────────
-    const newSession: LearningSession = {
-        id:        key,
-        userId,
-        type:      'lesson',
-        language:  cleanLang,
-        level:     prefs.level,
-        messages:  [],
-        updatedAt: Date.now(),
-    };
-    await storageService.saveSession(newSession);
-    return newSession;
-  }, //fin getOrCreateSession ici.
-//start saveSession ici:
+      // ── 3. Retourner session locale si elle existe ─────────────────────
+      if (localSession) return localSession;
+
+      // ── 4. Créer une nouvelle session ──────────────────────────────────
+      const newSession: LearningSession = {
+          id:        key,
+          userId,
+          type:      'lesson',
+          language:  cleanLang,
+          level:     prefs.level,
+          messages:  [],
+          updatedAt: Date.now(),
+      };
+      await storageService.saveSession(newSession);
+      return newSession;
+  },
+
   saveSession: async (session: LearningSession) => {
-    session.updatedAt = Date.now();
+      session.updatedAt = Date.now();
 
-    if (session.messages.length > 150) {
-        session.messages = [
-            session.messages[0],
-            ...session.messages.slice(-149)
-        ];
-    }
+      if (session.messages.length > 150) {
+          session.messages = [
+              session.messages[0],
+              ...session.messages.slice(-149)
+          ];
+      }
 
-    // Sauvegarde locale immédiate
-    safeLocalSet(session.id, JSON.stringify(session));
+      // Sauvegarde locale immédiate
+      safeLocalSet(session.id, JSON.stringify(session));
 
-    if (!isSupabaseConfigured()) return;
+      if (!isSupabaseConfigured()) return;
 
-    const expiresAt = new Date(session.updatedAt + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(session.updatedAt + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const payload = {
-        id:              session.id,
-        user_id:         session.userId,
-        target_language: session.language,
-        level:           session.level,
-        mode:            session.type || 'lesson',
-        messages:        session.messages,
-        updated_at:      new Date(session.updatedAt).toISOString(),
-        expires_at:      expiresAt,
-    };
+      const payload = {
+          id:              session.id,
+          user_id:         session.userId,
+          target_language: session.language,
+          level:           session.level,
+          mode:            session.type || 'lesson',
+          messages:        session.messages,
+          updated_at:      new Date(session.updatedAt).toISOString(),
+          expires_at:      expiresAt,
+      };
 
-    if (navigator.onLine) {
-        try {
-            const { error } = await supabase
-                .from('learning_sessions')
-                .upsert(payload, { onConflict: 'id' });
-            if (error) {
-                syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
-            }
-        } catch (_e) {
-            syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
-        }
-    } else {
-        syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
-    }
-  }, //end saveSession ici
+      if (navigator.onLine) {
+          try {
+              const { error } = await supabase
+                  .from('learning_sessions')
+                  .upsert(payload, { onConflict: 'id' });
+              if (error) {
+                  syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+              }
+          } catch (_e) {
+              syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+          }
+      } else {
+          syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+      }
+  },
 
   clearSession: (userId: string) => {
       Object.keys(localStorage).forEach(key => {
@@ -1062,7 +1054,6 @@ export const storageService = {
       }
   },
 
-  // ── Cache TTL 5min + lecture valid_coupons (vrai nom colonne DB) ──────────
   loadSystemSettings: async (): Promise<SystemSettings> => {
       const now = Date.now();
 
