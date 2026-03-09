@@ -949,54 +949,43 @@ export const storageService = {
   saveSession: async (session: LearningSession) => {
     session.updatedAt = Date.now();
 
-    // ── Limite : garder les 150 derniers messages (+ le 1er pour contexte) ─
     if (session.messages.length > 150) {
         session.messages = [
-            session.messages[0],           // message d'intro du prof
-            ...session.messages.slice(-149) // les 149 plus récents
+            session.messages[0],
+            ...session.messages.slice(-149)
         ];
     }
 
-    // ── 1. Sauvegarde locale sécurisée (anti-QuotaExceededError) ───────
+    // Sauvegarde locale immédiate
     safeLocalSet(session.id, JSON.stringify(session));
 
-    // ── 2. Sync Supabase ────────────────────────────────────────────────
     if (!isSupabaseConfigured()) return;
 
-    // Calcul expires_at = maintenant + 30 jours
     const expiresAt = new Date(session.updatedAt + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // ✅ FIX CRITIQUE : noms de colonnes corrects (target_language, mode — pas language/type)
     const payload = {
         id:              session.id,
         user_id:         session.userId,
-        target_language: session.language,          // ← était "language" (mauvaise colonne)
+        target_language: session.language,
         level:           session.level,
-        mode:            session.type || 'lesson',  // ← était "type" (mauvaise colonne)
-        type:            session.type || 'lesson',  // garder aussi pour rétro-compat
+        mode:            session.type || 'lesson',
         messages:        session.messages,
         updated_at:      new Date(session.updatedAt).toISOString(),
         expires_at:      expiresAt,
     };
 
-    // Tentative immédiate (online) puis fallback queue (offline)
     if (navigator.onLine) {
         try {
             const { error } = await supabase
                 .from('learning_sessions')
                 .upsert(payload, { onConflict: 'id' });
-
             if (error) {
-                console.warn('[saveSession] Supabase upsert échoué, mise en queue:', error.message);
                 syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
-            } else {
-                console.log('[saveSession] ✅ Synced with Supabase');
             }
-        } catch (e) {
+        } catch (_e) {
             syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
         }
     } else {
-        // Hors-ligne : mise en queue pour sync dès retour connexion
         syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
     }
   }, //end saveSession ici
