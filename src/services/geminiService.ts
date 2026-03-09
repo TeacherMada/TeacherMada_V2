@@ -259,13 +259,12 @@ export async function* sendMessageStream(
 // ============================================================================
 // 3. TEXT-TO-SPEECH
 // ============================================================================
+
 export const generateSpeech = async (
     text: string,
     voiceName: string = 'Kore',
     cost: number = CREDIT_COSTS.AUDIO_MESSAGE
 ): Promise<ArrayBuffer | null> => {
-
-    // ── Vérification crédits ─────────────────────────────────────────────
     const user = await storageService.getCurrentUser();
     if (!user) return null;
     if (!(await creditService.checkBalance(user.id, cost))) {
@@ -273,66 +272,45 @@ export const generateSpeech = async (
         return null;
     }
 
-    // ── Nettoyage texte (markdown → brut, limite 800 chars) ─────────────
     const cleanText = text
         .replace(/[#*`_~>]/g, '')
         .replace(/\[.*?\]/g, '')
-        .replace(/\n{3,}/g, '\n\n')
         .trim()
         .slice(0, 800);
 
     if (!cleanText) return null;
 
-    // ── Retry 3 tentatives avec back-off ────────────────────────────────
-    const MAX_ATTEMPTS = 3;
-    let lastError: any = null;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            console.log(`[TTS] Tentative ${attempt}/${MAX_ATTEMPTS} — voix: ${voiceName}`);
+            console.log(`[TTS] Tentative ${attempt}/3 — voix: ${voiceName}`);
 
             const data = await callGeminiFunction('generate_speech', {
-                text:      cleanText,
+                text: cleanText,
                 voiceName,
-                model:     AUDIO_MODEL,
+                model: AUDIO_MODEL,
             });
 
-            if (!data || data.error) {
-                throw new Error(data?.error || 'Réponse vide');
-            }
-            if (!data.audioBase64) {
-                throw new Error('audioBase64 absent');
-            }
+            if (!data?.audioBase64) throw new Error('audioBase64 absent');
 
-            // Base64 → ArrayBuffer
             const binaryString = atob(data.audioBase64);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
 
-            // Déduire crédits seulement si succès
             await creditService.deduct(user.id, cost);
-
             console.log(`[TTS] ✅ Succès tentative ${attempt}`);
             return bytes.buffer as ArrayBuffer;
 
         } catch (e: any) {
-            lastError = e;
-            console.warn(`[TTS] Tentative ${attempt} échouée:`, e?.message || e);
-
-            // Stopper si erreur de crédits / auth
+            console.warn(`[TTS] Tentative ${attempt} échouée:`, e?.message);
             const msg = String(e?.message || '').toLowerCase();
-            if (msg.includes('credit') || msg.includes('auth') || msg.includes('401')) break;
-
-            // Délai croissant : 1s, 2s
-            if (attempt < MAX_ATTEMPTS) {
-                await new Promise(r => setTimeout(r, attempt * 1000));
-            }
+            if (msg.includes('credit') || msg.includes('401')) break;
+            if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
         }
     }
 
-    console.error('[TTS] Échec définitif:', lastError?.message);
+    console.error('[TTS] Échec définitif');
     return null;
 };
 
