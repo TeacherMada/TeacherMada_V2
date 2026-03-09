@@ -885,79 +885,121 @@ export const storageService = {
       return `${SESSION_PREFIX}${userId}_${cleanLang}_${prefs.level}_${cleanMode}`;
   },
 
+    //debut getOrCreateSession ici:
   getOrCreateSession: async (userId: string, prefs: UserPreferences): Promise<LearningSession> => {
-      const key = storageService.getSessionKey(userId, prefs);
-      const cleanLang = prefs.targetLanguage.split(' ')[0];
+    const key = storageService.getSessionKey(userId, prefs);
+    const cleanLang = prefs.targetLanguage.split(' ')[0];
 
-      const localData = localStorage.getItem(key);
-      let localSession: LearningSession | null = localData ? JSON.parse(localData) : null;
+    // ── 1. Charger le local immédiatement (offline-first) ──────────────
+    const localData = localStorage.getItem(key);
+    let localSession: LearningSession | null = null;
+    try {
+        localSession = localData ? JSON.parse(localData) : null;
+    } catch { localSession = null; }
 
-      if (isSupabaseConfigured()) {
-          Promise.resolve(
-              supabase.from('learning_sessions').select('*').eq('id', key).single()
-          ).then(({ data, error }) => {
-              if (error) {
-                  console.log("Background sync info:", error.message);
-                  return;
-              }
-              if (data) {
-                  const remoteSession: LearningSession = {
-                      id: data.id,
-                      userId: data.user_id,
-                      type: data.type as any,
-                      language: data.language,
-                      level: data.level,
-                      messages: data.messages || [],
-                      updatedAt: new Date(data.updated_at).getTime()
-                  };
+    // ── 2. Sync Supabase en arrière-plan (non-bloquant) ────────────────
+    if (isSupabaseConfigured()) {
+        supabase.from('learning_sessions').select('*').eq('id', key).single()
+            .then(({ data, error }) => {
+                if (error || !data) return;
 
-                  if (!localSession || remoteSession.updatedAt > localSession.updatedAt) {
-                      safeLocalSet(key, JSON.stringify(remoteSession));
-                      window.dispatchEvent(new CustomEvent('tm_session_updated', { detail: remoteSession }));
-                  }
-              }
-          }).catch(() => { /* hors ligne, ignoré */ });
-      }
+                const remoteMessages: any[] = data.messages || [];
+                const remoteUpdatedAt = new Date(data.updated_at).getTime();
+                const localUpdatedAt  = localSession?.updatedAt || 0;
+                const localMsgCount   = localSession?.messages?.length || 0;
 
-      if (localSession) return localSession;
+                // ✅ On prend le remote SEULEMENT si :
+                //    - plus récent ET a au moins autant de messages que le local
+                //    (évite d'écraser local avec une version vide du serveur)
+                if (remoteUpdatedAt > localUpdatedAt && remoteMessages.length >= localMsgCount) {
+                    const remoteSession: LearningSession = {
+                        id:        data.id,
+                        userId:    data.user_id,
+                        type:      (data.type || 'lesson') as any,
+                        language:  data.target_language || cleanLang,
+                        level:     data.level,
+                        messages:  remoteMessages,
+                        updatedAt: remoteUpdatedAt,
+                    };
+                    // Sauvegarder localement (sans déclencher un nouveau sync)
+                    try { localStorage.setItem(key, JSON.stringify(remoteSession)); } catch { /* quota */ }
+                    window.dispatchEvent(new CustomEvent('tm_session_updated', { detail: remoteSession }));
+                }
+            })
+            .catch(() => { /* hors-ligne, ignoré */ });
+    }
 
-      const newSession: LearningSession = {
-          id: key,
-          userId,
-          type: 'lesson',
-          language: cleanLang,
-          level: prefs.level,
-          messages: [],
-          updatedAt: Date.now()
-      };
-      await storageService.saveSession(newSession);
-      return newSession;
-  },
+    // ── 3. Retourner session locale si elle existe ─────────────────────
+    if (localSession) return localSession;
 
+    // ── 4. Créer une nouvelle session ──────────────────────────────────
+    const newSession: LearningSession = {
+        id:        key,
+        userId,
+        type:      'lesson',
+        language:  cleanLang,
+        level:     prefs.level,
+        messages:  [],
+        updatedAt: Date.now(),
+    };
+    await storageService.saveSession(newSession);
+    return newSession;
+  }, //fin getOrCreateSession ici.
+//start saveSession ici:
   saveSession: async (session: LearningSession) => {
-      session.updatedAt = Date.now();
+    session.updatedAt = Date.now();
 
-      if (session.messages.length > 50) {
-          session.messages = [
-              session.messages[0],
-              ...session.messages.slice(-49)
-          ];
-      }
+    // ── Limite : garder les 150 derniers messages (+ le 1er pour contexte) ─
+    if (session.messages.length > 150) {
+        session.messages = [
+            session.messages[0],           // message d'intro du prof
+            ...session.messages.slice(-149) // les 149 plus récents
+        ];
+    }
 
-      safeLocalSet(session.id, JSON.stringify(session));
+    // ── 1. Sauvegarde locale sécurisée (anti-QuotaExceededError) ───────
+    safeLocalSet(session.id, JSON.stringify(session));
 
-      if (isSupabaseConfigured()) {
-          syncService.addToQueue('UPSERT_SESSION', {
-              id: session.id,
-              user_id: session.userId,
-              type: session.type,
-              language: session.language,
-              level: session.level,
-              messages: session.messages,
-              updated_at: new Date(session.updatedAt).toISOString()
-          }, `session_${session.id}`);
-      }
-  },
+    // ── 2. Sync Supabase ────────────────────────────────────────────────
+    if (!isSupabaseConfigured()) return;
+
+    // Calcul expires_at = maintenant + 30 jours
+    const expiresAt = new Date(session.updatedAt + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // ✅ FIX CRITIQUE : noms de colonnes corrects (target_language, mode — pas language/type)
+    const payload = {
+        id:              session.id,
+        user_id:         session.userId,
+        target_language: session.language,          // ← était "language" (mauvaise colonne)
+        level:           session.level,
+        mode:            session.type || 'lesson',  // ← était "type" (mauvaise colonne)
+        type:            session.type || 'lesson',  // garder aussi pour rétro-compat
+        messages:        session.messages,
+        updated_at:      new Date(session.updatedAt).toISOString(),
+        expires_at:      expiresAt,
+    };
+
+    // Tentative immédiate (online) puis fallback queue (offline)
+    if (navigator.onLine) {
+        try {
+            const { error } = await supabase
+                .from('learning_sessions')
+                .upsert(payload, { onConflict: 'id' });
+
+            if (error) {
+                console.warn('[saveSession] Supabase upsert échoué, mise en queue:', error.message);
+                syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+            } else {
+                console.log('[saveSession] ✅ Synced with Supabase');
+            }
+        } catch (e) {
+            syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+        }
+    } else {
+        // Hors-ligne : mise en queue pour sync dès retour connexion
+        syncService.addToQueue('UPSERT_SESSION', payload, `session_${session.id}`);
+    }
+  }, //end saveSession ici
 
   clearSession: (userId: string) => {
       Object.keys(localStorage).forEach(key => {
