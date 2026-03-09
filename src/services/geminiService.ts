@@ -1,11 +1,6 @@
 /**
  * ============================================================================
- * TeacherMada — geminiService.ts v4.0 (SANS STREAMING — ULTRA STABLE)
- * ============================================================================
- * ✅ Appel direct Gemini (pas de Edge Function, pas de streaming SSE)
- * ✅ Retry automatique + rotation de clés sur 429
- * ✅ Fallback de modèles automatique
- * ✅ Compatible avec tout le reste du code (sendMessageStream conservé)
+ * TeacherMada — geminiService.ts (CORRIGÉ — TTS appel direct sans callGeminiFunction)
  * ============================================================================
  */
 
@@ -14,20 +9,20 @@ import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
 
-// ── Clés API (lues depuis vite.config.ts qui injecte GEMINI_API_KEY) ──────────
+// ── Clés API ──────────────────────────────────────────────────────────────────
 // @ts-ignore
 const RAW_KEYS: string[] = (import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '')
   .split(',').map((k: string) => k.trim()).filter(Boolean);
 
-// ── Modèles (ordre de préférence) ─────────────────────────────────────────────
+// ── Modèles ───────────────────────────────────────────────────────────────────
 const TEXT_MODELS = [
   'gemini-3-flash-preview',
   'gemini-3-pro-preview',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',           // Rapide et stable
-  'gemini-2.0-flash-lite',      // Ultra rapide
-  'gemini-1.5-flash',           // Fallback fiable
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
 ];
 
 export const TEXT_MODEL = TEXT_MODELS[0];
@@ -45,14 +40,13 @@ function nextKey(): string {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-// ── Appel Gemini principal (avec retry + rotation clé) ────────────────────────
+// ── Appel Gemini texte (avec retry + rotation clé) ────────────────────────────
 async function callGemini(
   modelName: string,
   body: object,
   timeoutMs = 30_000,
   maxRetries = 2
 ): Promise<any> {
-  // Essayer chaque modèle en cas d'échec sur le modèle demandé
   const modelsToTry = modelName === TEXT_MODEL
     ? TEXT_MODELS
     : [modelName, ...TEXT_MODELS];
@@ -77,17 +71,14 @@ async function callGemini(
         clearTimeout(timer);
 
         if (res.status === 429) {
-          lastErr = `Rate limit (clé ${attempt + 1}, modèle ${model})`;
-          console.warn(`[Gemini] ${lastErr}`);
+          lastErr = `Rate limit (modèle ${model})`;
           await sleep(500 * (attempt + 1));
           continue;
         }
-
         if (!res.ok) {
           const txt = await res.text().catch(() => '');
           lastErr = `${model} HTTP ${res.status}: ${txt.slice(0, 100)}`;
-          console.warn(`[Gemini] ${lastErr}`);
-          if (res.status === 400) break; // Mauvaise requête → changer de modèle
+          if (res.status === 400) break;
           await sleep(500 * (attempt + 1));
           continue;
         }
@@ -98,8 +89,10 @@ async function callGemini(
 
       } catch (e: any) {
         clearTimeout(timer);
-        lastErr = e.name === 'AbortError' ? `Timeout ${timeoutMs/1000}s (${model})` : e.message;
-        console.warn(`[Gemini] Tentative ${attempt+1} échouée:`, lastErr);
+        lastErr = e.name === 'AbortError'
+          ? `Timeout ${timeoutMs / 1000}s (${model})`
+          : e.message;
+        console.warn(`[Gemini] Tentative ${attempt + 1} échouée:`, lastErr);
         if (attempt < maxRetries) await sleep(500 * (attempt + 1));
       }
     }
@@ -108,7 +101,7 @@ async function callGemini(
   throw new Error(`[Gemini] Toutes les tentatives échouées. Dernière erreur: ${lastErr}`);
 }
 
-// ── Construire le body de requête ─────────────────────────────────────────────
+// ── Construire le body de requête texte ───────────────────────────────────────
 function buildBody(contents: any, config: Record<string, any> = {}): object {
   const { systemInstruction, ...genConfig } = config;
 
@@ -147,7 +140,6 @@ function extractJSON<T>(data: any): T | null {
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(clean) as T;
   } catch {
-    // Chercher un JSON dans le texte
     const match = raw.match(/[\[{][\s\S]*[\]}]/);
     if (match) {
       try { return JSON.parse(match[0]) as T; } catch { return null; }
@@ -192,8 +184,6 @@ export const generateSupportResponse = async (
 
 // ============================================================================
 // 2. CHAT PRINCIPAL
-//    sendMessageStream conservé pour compatibilité avec ChatInterface.tsx
-//    mais sans vrai streaming — envoie la réponse complète d'un coup
 // ============================================================================
 export async function* sendMessageStream(
   message: string,
@@ -213,7 +203,6 @@ export async function* sendMessageStream(
   try {
     console.log("[Gemini] Appel démarré. Modèle:", TEXT_MODEL);
 
-    // Limiter à 15 messages pour réduire les tokens
     const recent = history.slice(-15)
       .filter(m => m.text?.trim())
       .map(m => `${m.role === 'user' ? 'Élève' : 'Professeur'}: ${m.text}`)
@@ -236,14 +225,10 @@ export async function* sendMessageStream(
       return;
     }
 
-    // Simuler un léger effet de "frappe" en envoyant par blocs de 200 chars
-    // (garde l'expérience utilisateur fluide sans streaming réel)
     const chunkSize = 200;
     for (let i = 0; i < text.length; i += chunkSize) {
       yield text.slice(i, i + chunkSize);
-      if (i + chunkSize < text.length) {
-        await sleep(20); // 20ms entre chaque bloc = effet naturel
-      }
+      if (i + chunkSize < text.length) await sleep(20);
     }
 
     console.log("[Gemini] ✅ Réponse envoyée.");
@@ -258,13 +243,14 @@ export async function* sendMessageStream(
 
 // ============================================================================
 // 3. TEXT-TO-SPEECH
+// ✅ CORRECTION : appel direct fetch Gemini (callGeminiFunction supprimé)
 // ============================================================================
-
 export const generateSpeech = async (
     text: string,
     voiceName: string = 'Kore',
     cost: number = CREDIT_COSTS.AUDIO_MESSAGE
 ): Promise<ArrayBuffer | null> => {
+
     const user = await storageService.getCurrentUser();
     if (!user) return null;
     if (!(await creditService.checkBalance(user.id, cost))) {
@@ -272,32 +258,79 @@ export const generateSpeech = async (
         return null;
     }
 
+    // Nettoyer le texte (supprimer markdown)
     const cleanText = text
         .replace(/[#*`_~>]/g, '')
         .replace(/\[.*?\]/g, '')
+        .replace(/\n{3,}/g, '\n\n')
         .trim()
         .slice(0, 800);
 
     if (!cleanText) return null;
 
+    // Corps de requête spécifique à l'API TTS Gemini
+    const ttsBody = {
+        contents: [{ parts: [{ text: cleanText }] }],
+        generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName }
+                }
+            }
+        }
+    };
+
+    // 3 tentatives avec délai croissant
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             console.log(`[TTS] Tentative ${attempt}/3 — voix: ${voiceName}`);
 
-            const data = await callGeminiFunction('generate_speech', {
-                text: cleanText,
-                voiceName,
-                model: AUDIO_MODEL,
-            });
+            const key = nextKey();
+            if (!key) throw new Error('GEMINI_API_KEY manquant');
 
-            if (!data?.audioBase64) throw new Error('audioBase64 absent');
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 30_000);
 
-            const binaryString = atob(data.audioBase64);
+            const res = await fetch(
+                `${BASE_URL}/${AUDIO_MODEL}:generateContent?key=${key}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ttsBody),
+                    signal: ctrl.signal,
+                }
+            );
+            clearTimeout(timer);
+
+            if (res.status === 429) {
+                console.warn(`[TTS] Rate limit (tentative ${attempt})`);
+                if (attempt < 3) await sleep(attempt * 1000);
+                continue;
+            }
+
+            if (!res.ok) {
+                const errText = await res.text().catch(() => '');
+                throw new Error(`TTS HTTP ${res.status}: ${errText.slice(0, 150)}`);
+            }
+
+            const data = await res.json();
+
+            // L'audio est dans candidates[0].content.parts[0].inlineData.data (base64 PCM)
+            const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+            if (!base64Audio) {
+                throw new Error('Pas de données audio dans la réponse Gemini');
+            }
+
+            // Décoder base64 → ArrayBuffer
+            const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
 
+            // Déduire les crédits uniquement si succès
             await creditService.deduct(user.id, cost);
             console.log(`[TTS] ✅ Succès tentative ${attempt}`);
             return bytes.buffer as ArrayBuffer;
@@ -305,12 +338,12 @@ export const generateSpeech = async (
         } catch (e: any) {
             console.warn(`[TTS] Tentative ${attempt} échouée:`, e?.message);
             const msg = String(e?.message || '').toLowerCase();
-            if (msg.includes('credit') || msg.includes('401')) break;
-            if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+            if (msg.includes('credit') || msg.includes('401') || msg.includes('403')) break;
+            if (attempt < 3) await sleep(attempt * 1000);
         }
     }
 
-    console.error('[TTS] Échec définitif');
+    console.error('[TTS] Échec définitif après 3 tentatives');
     return null;
 };
 
