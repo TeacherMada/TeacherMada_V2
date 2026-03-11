@@ -242,17 +242,98 @@ const AppContent: React.FC = () => {
     setActiveMode('chat');
   };
  remplacé par ceci:*/
-  const handleLogout = async () => {
-  await storageService.logout();
-  // Vider tous les états React
-  setUser(null);
-  setCurrentSession(null);
-  setShowDashboard(false);
-  setShowAdmin(false);
-  setActiveMode('chat');
-  // Forcer un rechargement complet pour vider toute la mémoire
-  window.location.href = '/';
-};
+  // ============================================================================
+// CORRECTION DÉCONNEXION - À REMPLACER DANS App.tsx
+// ============================================================================
+// Ligne ~245 : Remplacez la fonction handleLogout existante par celle-ci
+// ============================================================================
+
+const handleLogout = async () => {
+  try {
+    console.log('[Logout] Début déconnexion...');
+
+    // 1. Déconnexion Supabase
+    const { error: supabaseError } = await supabase.auth.signOut();
+    if (supabaseError) {
+      console.error('[Logout] Erreur Supabase:', supabaseError);
+      // Continue quand même pour nettoyer localement
+    } else {
+      console.log('[Logout] Supabase déconnecté ✓');
+    }
+
+    // 2. Appeler storageService.logout
+    await storageService.logout();
+    console.log('[Logout] Storage service nettoyé ✓');
+
+    // 3. Vider TOUS les états React
+    setUser(null);
+    setCurrentSession(null);
+    setShowDashboard(false);
+    setShowAdmin(false);
+    setShowAuth(false);
+    setShowPayment(false);
+    setShowVoiceCall(false);
+    setVerifyCertId(null);
+    setActiveMode('chat');
+    setCurrentExercises([]);
+    setIsGeneratingExercise(false);
+    console.log('[Logout] États React réinitialisés ✓');
+
+    // 4. Nettoyer localStorage (garder seulement le thème)
+    const keysToKeep = ['tm_theme'];
+    const allKeys = Object.keys(localStorage);
+    let cleanedCount = 0;
+
+    allKeys.forEach(key => {
+      if (!keysToKeep.includes(key) && key.startsWith('tm_')) {
+        localStorage.removeItem(key);
+        cleanedCount++;
+      }
+    });
+
+    console.log(`[Logout] ${cleanedCount} clés localStorage nettoyées ✓`);
+
+    // 5. Notification utilisateur
+    toast.success('✅ Déconnexion réussie');
+
+    // 6. Redirection forcée après 200ms
+    console.log('[Logout] Redirection vers / ...');
+    setTimeout(() => {
+      // Utiliser replace pour éviter l'historique
+      window.location.replace('/');
+    }, 200);
+
+  } catch (error: any) {
+    console.error('[Logout] Erreur critique:', error);
+    toast.error('❌ Erreur lors de la déconnexion');
+
+    // Forcer la redirection même en cas d'erreur
+    // L'utilisateur sera déconnecté au rechargement
+    setTimeout(() => {
+      window.location.replace('/');
+    }, 500);
+  }
+}; //fin handleLogout
+
+// ============================================================================
+// BONUS : Ajouter aussi cette fonction pour cleanup au unmount
+// ============================================================================
+
+useEffect(() => {
+  // Cleanup automatique si l'utilisateur ferme l'onglet
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (user) {
+      // Sauvegarder la dernière utilisation
+      localStorage.setItem(`last_used_${user.id}`, Date.now().toString());
+    }
+  };
+
+  window.addEventListener('beforeunload', handleBeforeUnload);
+
+  return () => {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  };
+}, [user]);
 
 
   
