@@ -501,53 +501,145 @@ export const storageService = {
       return storageService.deductCredits(userId, 1);
   },
 
-  deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-      const local = storageService.getLocalUser();
-      if (!local || local.id !== userId) return false;
-      if (local.role === 'admin') return true;
+  // ============================================================================
+// FIX storageService.deductCredits - GÉRER JSON CORRECTEMENT
+// ============================================================================
+// Fichier : src/services/storageService.ts
+// Remplacer la fonction deductCredits (ligne ~504-549)
+// ============================================================================
 
-      if (!isSupabaseConfigured()) {
-          if (local.credits < amount) return false;
-          storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-          return true;
+deductCredits: async (userId: string, amount: number): Promise<boolean> => {
+  const local = storageService.getLocalUser();
+  if (!local || local.id !== userId) {
+    console.warn('[deductCredits] User not found locally');
+    return false;
+  }
+
+  if (local.role === 'admin') {
+    console.log('[deductCredits] Admin user - credits not deducted');
+    return true;
+  }
+
+  // Mode hors ligne
+  if (!isSupabaseConfigured()) {
+    if (local.credits < amount) {
+      console.warn('[deductCredits] Insufficient credits (offline):', local.credits, '<', amount);
+      return false;
+    }
+    storageService.saveLocalUser({ ...local, credits: local.credits - amount });
+    console.log('[deductCredits] Credits deducted (offline):', amount);
+    return true;
+  }
+
+  // Mode en ligne avec Supabase
+  try {
+    const { data, error } = await supabase.rpc('consume_credits_safe', {
+      p_user_id: userId,
+      p_amount: amount
+    });
+
+    if (error) {
+      console.error('[deductCredits] RPC error:', error.message);
+      // Fallback sur crédits locaux
+      if (local.credits >= amount) {
+        storageService.saveLocalUser({ ...local, credits: local.credits - amount });
+        console.log('[deductCredits] Fallback to local - credits deducted:', amount);
+        return true;
+      }
+      return false;
+    }
+
+    // Vérifier que data existe et est un objet
+    if (!data || typeof data !== 'object') {
+      console.error('[deductCredits] Invalid response from RPC:', data);
+      return false;
+    }
+
+    // Gérer la réponse JSON
+    if (!data.success) {
+      console.warn('[deductCredits] Failed:', {
+        reason: data.reason || 'Unknown',
+        currentBalance: data.current_balance,
+        requested: amount
+      });
+
+      // Mettre à jour le solde local si disponible
+      if (typeof data.current_balance === 'number') {
+        storageService.saveLocalUser({ ...local, credits: data.current_balance });
       }
 
-      try {
-          const { data, error } = await supabase.rpc('consume_credits_safe', {
-              p_user_id: userId,
-              p_amount: amount
-          });
+      return false;
+    }
 
-          if (error) {
-              console.warn("RPC consume_credits_safe failed:", error.message);
-              if (local.credits >= amount) {
-                  storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-                  return true;
-              }
-              return false;
-          }
+    // Succès - mettre à jour le solde local
+    console.log('[deductCredits] Success:', {
+      amountDeducted: amount,
+      previousBalance: data.current_balance,
+      newBalance: data.new_balance
+    });
 
-          if (!data?.success) {
-              console.warn("Crédits insuffisants (DB):", data?.reason);
-              if (typeof data?.current_balance === 'number') {
-                  storageService.saveLocalUser({ ...local, credits: data.current_balance });
-              }
-              return false;
-          }
+    storageService.saveLocalUser({ ...local, credits: data.new_balance });
+    return true;
 
-          storageService.saveLocalUser({ ...local, credits: data.new_balance });
-          return true;
+  } catch (e: any) {
+    console.error('[deductCredits] Exception:', e.message);
+    
+    // Fallback sur crédits locaux en cas d'erreur réseau
+    if (local.credits >= amount) {
+      storageService.saveLocalUser({ ...local, credits: local.credits - amount });
+      console.log('[deductCredits] Fallback after exception - credits deducted:', amount);
+      return true;
+    }
+    
+    return false;
+  }
+},
 
-      } catch (e) {
-          console.warn("Error deducting credits:", e);
-          if (local.credits >= amount) {
-              storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-              return true;
-          }
-          return false;
-      }
-  },
+// ============================================================================
+// BONUS : Ajouter une fonction pour vérifier le solde
+// ============================================================================
 
+checkCredits: async (userId: string): Promise<number> => {
+  const local = storageService.getLocalUser();
+  if (!local || local.id !== userId) return 0;
+
+  // Admins ont "crédits illimités"
+  if (local.role === 'admin') return 999999;
+
+  // Mode hors ligne
+  if (!isSupabaseConfigured()) {
+    return local.credits || 0;
+  }
+
+  // Synchroniser avec Supabase
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('credits')
+      .eq('id', userId)
+      .single();
+
+    if (error || !data) {
+      console.warn('[checkCredits] Failed to fetch from DB, using local:', local.credits);
+      return local.credits || 0;
+    }
+
+    // Mettre à jour local si différent
+    if (data.credits !== local.credits) {
+      console.log('[checkCredits] Syncing credits:', data.credits);
+      storageService.saveLocalUser({ ...local, credits: data.credits });
+    }
+
+    return data.credits || 0;
+
+  } catch (e) {
+    console.error('[checkCredits] Exception:', e);
+    return local.credits || 0;
+  }
+}, // fi
+    
+
+    
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
       if (!isSupabaseConfigured()) return false;
       try {
