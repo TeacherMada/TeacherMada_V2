@@ -241,13 +241,13 @@ class CacheService {
     }
   }
 
-  private loadFromStorage(key: string): CacheEntry<any> | null {
+  private loadFromStorage(key: string): CacheEntry<any> | undefined {
     try {
       const raw = localStorage.getItem(this.STORAGE_PREFIX + key);
-      if (!raw) return null;
+      if (!raw) return undefined;
       return JSON.parse(raw);
     } catch {
-      return null;
+      return undefined;
     }
   }
 
