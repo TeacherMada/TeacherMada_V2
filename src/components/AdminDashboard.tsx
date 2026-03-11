@@ -98,6 +98,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   
 
 // Dans AdminDashboard.tsx (fonction handleAddCredits)
+  /*
 const handleAddCredits = async (userId: string, amount: number) => {
   try {
     const success = await storageService.addCredits(userId, amount);
@@ -113,7 +114,7 @@ const handleAddCredits = async (userId: string, amount: number) => {
     console.error('[handleAddCredits] Error:', error);
     toast.error('❌ Erreur lors de l\'ajout de crédits');
   }
-};
+}; */
   
   
   // --- COUPON MANAGEMENT ---
