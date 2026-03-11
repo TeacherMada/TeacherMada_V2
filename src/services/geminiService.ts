@@ -1,13 +1,22 @@
 /**
- * ============================================================================
- * TeacherMada — geminiService.ts (CORRIGÉ — TTS appel direct sans callGeminiFunction)
- * ============================================================================
+ * @file geminiService.improved.ts
+ * @description Version améliorée du geminiService avec :
+ * - Circuit Breaker
+ * - Cache intelligent
+ * - Gestion d'erreurs robuste
+ * - Rate limiting
+ * 
+ * REMPLACER src/services/geminiService.ts par ce fichier
  */
 
 import { UserProfile, ChatMessage, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 import { creditService, CREDIT_COSTS } from "./creditService";
+import { geminiCircuitBreaker, ttsCircuitBreaker } from "./circuitBreaker";
+import { cacheService } from "./cacheService";
+import { errorService } from "./errorService";
+import { toast } from "../components/Toaster";
 
 // ── Clés API ──────────────────────────────────────────────────────────────────
 // @ts-ignore
@@ -29,76 +38,130 @@ export const TEXT_MODEL = TEXT_MODELS[0];
 export const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts';
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// ── Rotation des clés ─────────────────────────────────────────────────────────
+// ── Rotation des clés avec blacklist ─────────────────────────────────────────
 let _keyIdx = 0;
+const _deadKeys = new Set<string>(); // Clés inutilisables
+
 function nextKey(): string {
   if (RAW_KEYS.length === 0) return '';
-  const key = RAW_KEYS[_keyIdx % RAW_KEYS.length];
-  _keyIdx++;
-  return key;
+  
+  // Essayer de trouver une clé vivante
+  for (let i = 0; i < RAW_KEYS.length; i++) {
+    const key = RAW_KEYS[_keyIdx % RAW_KEYS.length];
+    _keyIdx++;
+    
+    if (!_deadKeys.has(key)) {
+      return key;
+    }
+  }
+  
+  // Toutes les clés sont mortes, réinitialiser
+  _deadKeys.clear();
+  console.warn('[Gemini] Toutes les clés étaient blacklistées, réinitialisation');
+  return RAW_KEYS[0];
+}
+
+function markKeyAsDead(key: string, reason: string) {
+  _deadKeys.add(key);
+  console.warn(`[Gemini] Clé blacklistée: ${key.slice(0, 10)}... (${reason})`);
+  
+  if (_deadKeys.size === RAW_KEYS.length) {
+    toast.error('Toutes les clés API Gemini sont invalides. Contactez l\'admin.');
+  }
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-// ── Appel Gemini texte (avec retry + rotation clé) ────────────────────────────
+// ── Appel Gemini avec circuit breaker ────────────────────────────────────────
 async function callGemini(
   modelName: string,
   body: object,
   timeoutMs = 30_000,
   maxRetries = 2
 ): Promise<any> {
-  const modelsToTry = modelName === TEXT_MODEL
-    ? TEXT_MODELS
-    : [modelName, ...TEXT_MODELS];
+  // Utiliser le circuit breaker
+  return geminiCircuitBreaker.execute(async () => {
+    const modelsToTry = modelName === TEXT_MODEL
+      ? TEXT_MODELS
+      : [modelName, ...TEXT_MODELS];
 
-  let lastErr = 'Erreur inconnue';
+    let lastErr = 'Erreur inconnue';
 
-  for (const model of modelsToTry) {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const key = nextKey();
-      if (!key) throw new Error('GEMINI_API_KEY manquant dans Render.');
-
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-
-      try {
-        const res = await fetch(`${BASE_URL}/${model}:generateContent?key=${key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-
-        if (res.status === 429) {
-          lastErr = `Rate limit (modèle ${model})`;
-          await sleep(500 * (attempt + 1));
-          continue;
-        }
-        if (!res.ok) {
-          const txt = await res.text().catch(() => '');
-          lastErr = `${model} HTTP ${res.status}: ${txt.slice(0, 100)}`;
-          if (res.status === 400) break;
-          await sleep(500 * (attempt + 1));
-          continue;
+    for (const model of modelsToTry) {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const key = nextKey();
+        if (!key) {
+          errorService.logError(new Error('GEMINI_API_KEY manquant'), {
+            context: 'Gemini:callGemini',
+            severity: 'critical',
+          });
+          throw new Error('GEMINI_API_KEY manquant dans Render.');
         }
 
-        const data = await res.json();
-        console.log(`[Gemini] ✅ Réponse reçue (modèle: ${model})`);
-        return data;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
-      } catch (e: any) {
-        clearTimeout(timer);
-        lastErr = e.name === 'AbortError'
-          ? `Timeout ${timeoutMs / 1000}s (${model})`
-          : e.message;
-        console.warn(`[Gemini] Tentative ${attempt + 1} échouée:`, lastErr);
-        if (attempt < maxRetries) await sleep(500 * (attempt + 1));
+        try {
+          const res = await fetch(`${BASE_URL}/${model}:generateContent?key=${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: ctrl.signal,
+          });
+          clearTimeout(timer);
+
+          // Rate limit
+          if (res.status === 429) {
+            lastErr = `Rate limit (modèle ${model})`;
+            await sleep(500 * (attempt + 1));
+            continue;
+          }
+
+          // Clé invalide
+          if (res.status === 401 || res.status === 403) {
+            markKeyAsDead(key, `HTTP ${res.status}`);
+            continue; // Essayer avec une autre clé
+          }
+
+          if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            lastErr = `${model} HTTP ${res.status}: ${txt.slice(0, 100)}`;
+            
+            errorService.logApiError(`Gemini:${model}`, new Error(lastErr), res.status);
+            
+            if (res.status === 400) break; // Bad request, ne pas retry
+            await sleep(500 * (attempt + 1));
+            continue;
+          }
+
+          const data = await res.json();
+          console.log(`[Gemini] ✅ Réponse reçue (modèle: ${model})`);
+          return data;
+
+        } catch (e: any) {
+          clearTimeout(timer);
+          lastErr = e.name === 'AbortError'
+            ? `Timeout ${timeoutMs / 1000}s (${model})`
+            : e.message;
+
+          errorService.logError(e, {
+            context: `Gemini:callGemini:${model}`,
+            severity: attempt === maxRetries ? 'high' : 'medium',
+            metadata: { attempt, model },
+          });
+
+          if (attempt < maxRetries) await sleep(500 * (attempt + 1));
+        }
       }
     }
-  }
 
-  throw new Error(`[Gemini] Toutes les tentatives échouées. Dernière erreur: ${lastErr}`);
+    const error = new Error(`[Gemini] Toutes les tentatives échouées. Dernière erreur: ${lastErr}`);
+    errorService.logError(error, {
+      context: 'Gemini:callGemini',
+      severity: 'critical',
+    });
+    throw error;
+  });
 }
 
 // ── Construire le body de requête texte ───────────────────────────────────────
@@ -148,7 +211,6 @@ function extractJSON<T>(data: any): T | null {
   }
 }
 
-
 // ============================================================================
 // 1. SUPPORT AGENT
 // ============================================================================
@@ -176,14 +238,16 @@ export const generateSupportResponse = async (
     storageService.incrementSupportUsage();
     return extractText(data) || "Je n'ai pas de réponse pour le moment.";
   } catch (e: any) {
-    console.error('[Gemini] Support error:', e.message);
+    errorService.logError(e, {
+      context: 'Gemini:Support',
+      severity: 'medium',
+    });
     return "Désolé, je rencontre un problème technique. Veuillez réessayer.";
   }
 };
 
-
 // ============================================================================
-// 2. CHAT PRINCIPAL
+// 2. CHAT PRINCIPAL (AVEC CACHE)
 // ============================================================================
 export async function* sendMessageStream(
   message: string,
@@ -195,6 +259,25 @@ export async function* sendMessageStream(
     return;
   }
 
+  // ✅ VÉRIFIER LE CACHE D'ABORD
+  const cacheKey = `${user.id}_${message.slice(0, 100)}_${history.slice(-3).map(m => m.text?.slice(0, 20)).join('_')}`;
+  const cached = cacheService.getCachedGeminiResponse(cacheKey, user.id);
+  
+  if (cached) {
+    console.log('[Gemini] 🎯 Réponse trouvée en cache');
+    
+    // Simuler streaming pour UX cohérente
+    const chunkSize = 200;
+    for (let i = 0; i < cached.length; i += chunkSize) {
+      yield cached.slice(i, i + chunkSize);
+      if (i + chunkSize < cached.length) await sleep(20);
+    }
+    
+    // Crédits déjà déduits lors de la première requête
+    return;
+  }
+
+  // ✅ VÉRIFIER LES CRÉDITS
   if (!(await creditService.checkBalance(user.id, CREDIT_COSTS.LESSON))) {
     yield "⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer.";
     return;
@@ -225,6 +308,9 @@ export async function* sendMessageStream(
       return;
     }
 
+    // ✅ METTRE EN CACHE LA RÉPONSE
+    cacheService.cacheGeminiResponse(cacheKey, text, user.id);
+
     const chunkSize = 200;
     for (let i = 0; i < text.length; i += chunkSize) {
       yield text.slice(i, i + chunkSize);
@@ -235,15 +321,17 @@ export async function* sendMessageStream(
     await creditService.deduct(user.id, CREDIT_COSTS.LESSON);
 
   } catch (e: any) {
-    console.error("[Gemini] Erreur chat:", e.message);
+    errorService.logError(e, {
+      context: 'Gemini:Chat',
+      severity: 'high',
+      userId: user.id,
+    });
     yield "⚠️ Désolé, le service est temporairement indisponible. Veuillez réessayer.";
   }
 }
 
-
 // ============================================================================
-// 3. TEXT-TO-SPEECH
-// ✅ CORRECTION : appel direct fetch Gemini (callGeminiFunction supprimé)
+// 3. TEXT-TO-SPEECH (AVEC CIRCUIT BREAKER)
 // ============================================================================
 export const generateSpeech = async (
     text: string,
@@ -258,7 +346,6 @@ export const generateSpeech = async (
         return null;
     }
 
-    // Nettoyer le texte (supprimer markdown)
     const cleanText = text
         .replace(/[#*`_~>]/g, '')
         .replace(/\[.*?\]/g, '')
@@ -268,7 +355,6 @@ export const generateSpeech = async (
 
     if (!cleanText) return null;
 
-    // Corps de requête spécifique à l'API TTS Gemini
     const ttsBody = {
         contents: [{ parts: [{ text: cleanText }] }],
         generationConfig: {
@@ -281,72 +367,82 @@ export const generateSpeech = async (
         }
     };
 
-    // 3 tentatives avec délai croissant
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-            console.log(`[TTS] Tentative ${attempt}/3 — voix: ${voiceName}`);
+    try {
+        // ✅ UTILISER LE CIRCUIT BREAKER
+        const result = await ttsCircuitBreaker.execute(async () => {
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    console.log(`[TTS] Tentative ${attempt}/3 — voix: ${voiceName}`);
 
-            const key = nextKey();
-            if (!key) throw new Error('GEMINI_API_KEY manquant');
+                    const key = nextKey();
+                    if (!key) throw new Error('GEMINI_API_KEY manquant');
 
-            const ctrl = new AbortController();
-            const timer = setTimeout(() => ctrl.abort(), 30_000);
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 30_000);
 
-            const res = await fetch(
-                `${BASE_URL}/${AUDIO_MODEL}:generateContent?key=${key}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(ttsBody),
-                    signal: ctrl.signal,
+                    const res = await fetch(
+                        `${BASE_URL}/${AUDIO_MODEL}:generateContent?key=${key}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(ttsBody),
+                            signal: ctrl.signal,
+                        }
+                    );
+                    clearTimeout(timer);
+
+                    if (res.status === 429) {
+                        console.warn(`[TTS] Rate limit (tentative ${attempt})`);
+                        if (attempt < 3) await sleep(attempt * 1000);
+                        continue;
+                    }
+
+                    if (res.status === 401 || res.status === 403) {
+                        markKeyAsDead(key, `TTS HTTP ${res.status}`);
+                        continue;
+                    }
+
+                    if (!res.ok) {
+                        const errText = await res.text().catch(() => '');
+                        throw new Error(`TTS HTTP ${res.status}: ${errText.slice(0, 150)}`);
+                    }
+
+                    const data = await res.json();
+                    const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+                    if (!base64Audio) {
+                        throw new Error('Pas de données audio dans la réponse Gemini');
+                    }
+
+                    const binaryString = atob(base64Audio);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    console.log(`[TTS] ✅ Succès tentative ${attempt}`);
+                    return bytes.buffer as ArrayBuffer;
+
+                } catch (e: any) {
+                    if (attempt === 3) throw e;
+                    await sleep(attempt * 1000);
                 }
-            );
-            clearTimeout(timer);
-
-            if (res.status === 429) {
-                console.warn(`[TTS] Rate limit (tentative ${attempt})`);
-                if (attempt < 3) await sleep(attempt * 1000);
-                continue;
             }
+            throw new Error('TTS échec après 3 tentatives');
+        });
 
-            if (!res.ok) {
-                const errText = await res.text().catch(() => '');
-                throw new Error(`TTS HTTP ${res.status}: ${errText.slice(0, 150)}`);
-            }
+        await creditService.deduct(user.id, cost);
+        return result;
 
-            const data = await res.json();
-
-            // L'audio est dans candidates[0].content.parts[0].inlineData.data (base64 PCM)
-            const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-            if (!base64Audio) {
-                throw new Error('Pas de données audio dans la réponse Gemini');
-            }
-
-            // Décoder base64 → ArrayBuffer
-            const binaryString = atob(base64Audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-
-            // Déduire les crédits uniquement si succès
-            await creditService.deduct(user.id, cost);
-            console.log(`[TTS] ✅ Succès tentative ${attempt}`);
-            return bytes.buffer as ArrayBuffer;
-
-        } catch (e: any) {
-            console.warn(`[TTS] Tentative ${attempt} échouée:`, e?.message);
-            const msg = String(e?.message || '').toLowerCase();
-            if (msg.includes('credit') || msg.includes('401') || msg.includes('403')) break;
-            if (attempt < 3) await sleep(attempt * 1000);
-        }
+    } catch (e: any) {
+        errorService.logError(e, {
+            context: 'Gemini:TTS',
+            severity: 'medium',
+            userId: user.id,
+        });
+        return null;
     }
-
-    console.error('[TTS] Échec définitif après 3 tentatives');
-    return null;
 };
-
 
 // ============================================================================
 // 4. VOCABULAIRE
@@ -378,9 +474,14 @@ Conversation:\n${context}`;
       mastered: false,
       addedAt: Date.now(),
     }));
-  } catch { return []; }
+  } catch (e: any) {
+    errorService.logError(e, {
+      context: 'Gemini:ExtractVocabulary',
+      severity: 'low',
+    });
+    return [];
+  }
 };
-
 
 // ============================================================================
 // 5. EXERCICES
@@ -409,9 +510,14 @@ Conversation:\n${context}`;
 
     await creditService.deduct(user.id, CREDIT_COSTS.EXERCISE);
     return result.map((item: any, i: number) => ({ id: `ex_${i}_${Date.now()}`, ...item }));
-  } catch { return []; }
+  } catch (e: any) {
+    errorService.logError(e, {
+      context: 'Gemini:GenerateExercise',
+      severity: 'medium',
+    });
+    return [];
+  }
 };
-
 
 // ============================================================================
 // 6. ROLEPLAY
@@ -443,11 +549,14 @@ export const generateRoleplayResponse = async (
 
     await creditService.deduct(user.id, CREDIT_COSTS.DIALOGUE_MESSAGE);
     return result;
-  } catch {
+  } catch (e: any) {
+    errorService.logError(e, {
+      context: 'Gemini:Roleplay',
+      severity: 'medium',
+    });
     return { aiReply: "Problème technique. Veuillez réessayer." };
   }
 };
-
 
 // ============================================================================
 // 7. TEXTE GÉNÉRIQUE
@@ -457,7 +566,10 @@ export const generateText = async (prompt: string): Promise<string> => {
     const data = await callGemini(TEXT_MODEL, buildBody(prompt, { maxOutputTokens: 4096 }));
     return extractText(data);
   } catch (e: any) {
-    console.error('[Gemini] generateText error:', e.message);
+    errorService.logError(e, {
+      context: 'Gemini:GenerateText',
+      severity: 'low',
+    });
     return '';
   }
 };
