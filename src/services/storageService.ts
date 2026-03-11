@@ -23,6 +23,19 @@ const notifyListeners = (user: UserProfile) => {
     userListeners.forEach(listener => listener(user));
 };
 
+
+// En haut du fichier
+const DEBUG = import.meta.env.DEV;
+const log = (category: string, message: string, data?: any) => {
+  if (DEBUG) {
+    console.log(`[${category}] ${message}`, data || '');
+  }
+};
+// Utiliser partout
+log('deductCredits', 'Success', { amount, newBalance });
+
+
+
 // ── Écriture localStorage sécurisée (anti-saturation 5MB) ───────────────────
 const safeLocalSet = (key: string, value: string): boolean => {
     try {
