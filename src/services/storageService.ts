@@ -515,12 +515,10 @@ export const storageService = {
       return storageService.deductCredits(userId, 1);
   },
 
-  // ============================================================================
-// FIX storageService.deductCredits - GÉRER JSON CORRECTEMENT
 // ============================================================================
-// Fichier : src/services/storageService.ts
-// Remplacer la fonction deductCredits (ligne ~504-549)
+// 1. FONCTION deductCredits - UTILISER BONNE SIGNATURE
 // ============================================================================
+// Remplacer la fonction existante (ligne ~525-610)
 
 deductCredits: async (userId: string, amount: number): Promise<boolean> => {
   const local = storageService.getLocalUser();
@@ -545,15 +543,15 @@ deductCredits: async (userId: string, amount: number): Promise<boolean> => {
     return true;
   }
 
-  // Mode en ligne avec Supabase
+  // Mode en ligne - UTILISER LA BONNE SIGNATURE (user_id, amount)
   try {
-    const { data, error } = await supabase.rpc('consume_credits_safe', {
-      p_user_id: userId,
-      p_amount: amount
+    const { data, error } = await supabase.rpc('consume_credits', {
+      p_user_id: userId,  // ✅ user_id en PREMIER
+      p_amount: amount    // ✅ amount en SECOND
     });
 
     if (error) {
-      console.error('[deductCredits] RPC error:', error.message);
+      console.error('[deductCredits] RPC error:', error.message, error);
       // Fallback sur crédits locaux
       if (local.credits >= amount) {
         storageService.saveLocalUser({ ...local, credits: local.credits - amount });
@@ -565,7 +563,7 @@ deductCredits: async (userId: string, amount: number): Promise<boolean> => {
 
     // Vérifier que data existe et est un objet
     if (!data || typeof data !== 'object') {
-      console.error('[deductCredits] Invalid response from RPC:', data);
+      console.error('[deductCredits] Invalid response:', data);
       return false;
     }
 
@@ -650,24 +648,71 @@ checkCredits: async (userId: string): Promise<number> => {
     console.error('[checkCredits] Exception:', e);
     return local.credits || 0;
   }
-}, // fi
+}, // fin
     
 
     
-  addCredits: async (userId: string, amount: number): Promise<boolean> => {
-      if (!isSupabaseConfigured()) return false;
-      try {
-          const { error } = await supabase.rpc('admin_add_credits', {
-              p_target_user: userId,
-              p_amount: amount
-          });
-          return !error;
-      } catch (e) {
-          console.warn("Error adding credits:", e);
-          return false;
-      }
-  },
+  
+// ============================================================================
+// 2. FONCTION addCredits - RETOURNER JSON
+// ============================================================================
+// Remplacer la fonction existante (ligne ~)
 
+addCredits: async (userId: string, amount: number): Promise<boolean> => {
+  if (!isSupabaseConfigured()) {
+    console.warn('[addCredits] Supabase not configured');
+    return false;
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('admin_add_credits', {
+      p_target_user: userId,
+      p_amount: amount
+    });
+
+    if (error) {
+      console.error('[addCredits] RPC error:', error.message, error);
+      return false;
+    }
+
+    // Vérifier la réponse JSON
+    if (!data || typeof data !== 'object') {
+      console.error('[addCredits] Invalid response:', data);
+      return false;
+    }
+
+    if (!data.success) {
+      console.error('[addCredits] Failed:', {
+        reason: data.reason || 'Unknown',
+        targetUser: userId,
+        amount: amount
+      });
+      return false;
+    }
+
+    // Succès
+    console.log('[addCredits] Success:', {
+      targetUser: userId,
+      amountAdded: amount,
+      previousBalance: data.current_balance,
+      newBalance: data.new_balance
+    });
+
+    // Mettre à jour le user local si c'est l'utilisateur connecté
+    const local = storageService.getLocalUser();
+    if (local && local.id === userId) {
+      storageService.saveLocalUser({ ...local, credits: data.new_balance });
+    }
+
+    return true;
+
+  } catch (e: any) {
+    console.error('[addCredits] Exception:', e.message);
+    return false;
+  }
+},
+
+    
   // --- EXAMS & CERTIFICATES ---
   saveExamResult: async (result: ExamResult) => {
       try {
