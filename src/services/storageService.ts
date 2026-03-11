@@ -62,7 +62,7 @@ const formatLoginEmail = (input: string) => {
     const trimmed = input.trim();
     if (trimmed.includes('@')) return trimmed;
     const cleanId = trimmed.replace(/[^a-zA-Z0-9.\-_+]/g, '');
-    return `${cleanId}@teachermada.com`;
+    return `${cleanId}@gmail.com`; // ✅
 };
 
 const createDefaultProfilePayload = (id: string, username: string, email: string) => ({
