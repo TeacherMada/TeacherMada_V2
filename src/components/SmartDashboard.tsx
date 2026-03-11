@@ -194,16 +194,6 @@ const SmartDashboard: React.FC<Props> = ({
   }, [user?.id, activeTab]);
 
 
-  //Dashboard Crédits Temps Réel
-  useEffect(() => {
-  const interval = setInterval(async () => {
-    const credits = await storageService.checkCredits(user.id);
-    setUser({ ...user, credits });
-  }, 5000); // Rafraîchir toutes les 5s
-
-  return () => clearInterval(interval);
-}, [user.id]);
-
   
   
   // Edit Profile State (préférences pédagogiques)
