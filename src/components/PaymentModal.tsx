@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { memo } from 'react'; //memo
 import { X, Smartphone, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, TrendingUp } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
@@ -419,4 +420,5 @@ const OperatorMiniBtn = ({ name, active, color, onClick }: OperatorMiniBtnProps)
     </button>
 );
 
-export default PaymentModal;
+//export default PaymentModal;
+export default memo(PaymentModal);
