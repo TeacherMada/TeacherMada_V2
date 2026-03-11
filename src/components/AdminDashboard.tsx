@@ -95,7 +95,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
           notify("Erreur lors de la sauvegarde. Vérifiez les permissions DB.", 'error');
       }
   };
+  
 
+// Dans AdminDashboard.tsx (fonction handleAddCredits)
+const handleAddCredits = async (userId: string, amount: number) => {
+  try {
+    const success = await storageService.addCredits(userId, amount);
+    
+    if (success) {
+      toast.success(`✅ ${amount} crédits ajoutés avec succès`);
+      // Rafraîchir la liste des utilisateurs
+      await refreshUsers();
+    } else {
+      toast.error('❌ Échec de l\'ajout de crédits');
+    }
+  } catch (error) {
+    console.error('[handleAddCredits] Error:', error);
+    toast.error('❌ Erreur lors de l\'ajout de crédits');
+  }
+};
+  
+  
   // --- COUPON MANAGEMENT ---
   const handleAddCoupon = async () => {
       // 1. Sanitize Input: Prevent users from pasting JSON or weird characters
