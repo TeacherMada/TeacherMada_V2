@@ -58,22 +58,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       setManualCreditInputs(prev => ({ ...prev, [userId]: val }));
   };
 
-  const executeManualCredit = async (userId: string, multiplier: number) => {
-      const val = parseInt(manualCreditInputs[userId] || '0');
-      if (!isNaN(val) && val !== 0) {
-          const finalAmt = val * multiplier;
-          const success = await storageService.addCredits(userId, finalAmt);
-          
-          if (success) {
-              setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
-              await refreshData();
-              notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
-          } else {
-              notify("Échec de la mise à jour des crédits.", 'error');
-          }
-      }
-  };
 
+  
+  const executeManualCredit = async (userId: string, multiplier: number) => {
+    const val = parseInt(manualCreditInputs[userId] || '0');
+    if (!isNaN(val) && val !== 0) {
+        const amount = Math.abs(val); // Toujours positif
+        let success = false;
+
+        if (multiplier > 0) {
+            // AJOUTER des crédits
+            success = await storageService.addCredits(userId, amount);
+        } else {
+            // RETIRER des crédits
+            success = await storageService.deductCredits(userId, amount);
+        }
+        
+        if (success) {
+            setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
+            await refreshData();
+            notify(`Crédits modifiés: ${multiplier > 0 ? '+' : '-'}${amount}`, 'success');
+        } else {
+            notify("Échec de la mise à jour des crédits.", 'error');
+        }
+    }
+};
+
+
+  
   const toggleSuspend = async (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
       await storageService.saveUserProfile(updated);
