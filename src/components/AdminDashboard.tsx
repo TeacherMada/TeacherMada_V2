@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { memo } from 'react'; //memo
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
 import { Users, CreditCard, Settings, Search, Save, MessageSquare, Plus, Minus, RefreshCw, Banknote, Shield, Loader2, Trash2, CheckCircle, X, Info } from 'lucide-react';
@@ -398,4 +399,5 @@ const Tab = ({ active, onClick, icon, label, count }: TabProps) => (
     </button>
 );
 
-export default AdminDashboard;
+//export default AdminDashboard;
+export default memo(AdminDashboard);
