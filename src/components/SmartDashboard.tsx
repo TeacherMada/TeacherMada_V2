@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { memo } from 'react'; //memo
 import { UserProfile, ChatMessage, SmartNotification, VoiceName } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Loader2, Save, Globe, Download, ShieldCheck, Upload, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight, Award, ChevronRight, User, Bell, Check, Trash2, Info, CheckCircle, XCircle, BarChart3, Lock, Mail, Smartphone } from 'lucide-react';
 import { storageService } from '../services/storageService';
@@ -1094,4 +1095,5 @@ const SettingsItem = ({ icon, title, value, onClick }: SettingsItemProps) => (
     </button>
 );
 
-export default SmartDashboard;
+//export default SmartDashboard;
+export default memo(SmartDashboard);
