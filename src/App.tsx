@@ -1,31 +1,131 @@
-import React, { useState, useEffect } from 'react';
-import LandingPage from './components/LandingPage';
-import AuthScreen from './components/AuthScreen';
-import Onboarding from './components/Onboarding';
-import ChatInterface from './components/ChatInterface';
-import SmartDashboard from './components/SmartDashboard';
-import ExerciseSession from './components/ExerciseSession';
-import DialogueSession from './components/DialogueSession';
-// import ExamHub from './modules/SmartExam'; // Lazy Loaded below
-import PaymentModal from './components/PaymentModal';
-import AdminDashboard from './components/AdminDashboard';
-import TutorialAgent from './components/TutorialAgent';
-import LiveTeacher from './components/LiveTeacher'; 
-import VerifyCertificate from './components/VerifyCertificate'; // Added
+// ============================================================================
+// APP.TSX - VERSION OPTIMISÉE PRODUCTION-READY
+// ============================================================================
+// Modifications :
+// - Lazy loading de TOUS les composants lourds
+// - Suspense avec fallback élégant
+// - ErrorBoundary pour capturer les erreurs
+// - Performance optimisée
+// ============================================================================
+
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { UserProfile, LearningSession, ExerciseItem, LearningMode } from './types';
 import type { UserPreferences } from './types';
 import { storageService } from './services/storageService';
 import { supabase } from './lib/supabase';
-import { generateExerciseFromHistory } from './services/geminiService'; // Added
+import { generateExerciseFromHistory } from './services/geminiService';
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
 
-import DebugConsole from './components/DebugConsole';
+// ============================================================================
+// LAZY LOADING - Tous les composants lourds
+// ============================================================================
 
-// Lazy Load Heavy Modules
-const ExamHub = React.lazy(() => import('./modules/SmartExam'));
+// Composants de base (lazy loaded)
+const LandingPage = lazy(() => import('./components/LandingPage'));
+const AuthScreen = lazy(() => import('./components/AuthScreen'));
+const Onboarding = lazy(() => import('./components/Onboarding'));
 
-// Mock Guest User for Landing Page Chatbot
+// Composants principaux (lazy loaded)
+const ChatInterface = lazy(() => import('./components/ChatInterface'));
+const SmartDashboard = lazy(() => import('./components/SmartDashboard'));
+const ExerciseSession = lazy(() => import('./components/ExerciseSession'));
+const DialogueSession = lazy(() => import('./components/DialogueSession'));
+const PaymentModal = lazy(() => import('./components/PaymentModal'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+
+// Composants auxiliaires (lazy loaded)
+const TutorialAgent = lazy(() => import('./components/TutorialAgent'));
+const LiveTeacher = lazy(() => import('./components/LiveTeacher'));
+const VerifyCertificate = lazy(() => import('./components/VerifyCertificate'));
+const DebugConsole = lazy(() => import('./components/DebugConsole'));
+
+// Modules (lazy loaded)
+const ExamHub = lazy(() => import('./modules/SmartExam'));
+
+// ============================================================================
+// LOADING FALLBACK - Écran de chargement élégant
+// ============================================================================
+
+const LoadingFallback = ({ message = 'Chargement...' }: { message?: string }) => (
+  <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500">
+    <div className="text-center">
+      <Loader2 className="w-16 h-16 text-white animate-spin mx-auto mb-4" />
+      <p className="text-white text-lg font-medium">{message}</p>
+      <p className="text-white/80 text-sm mt-2">Veuillez patienter...</p>
+    </div>
+  </div>
+);
+
+// ============================================================================
+// ERROR BOUNDARY - Capturer les erreurs React
+// ============================================================================
+
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[ErrorBoundary] Erreur capturée:', error, errorInfo);
+    
+    // Logger l'erreur (si errorService disponible)
+    if (window.errorService) {
+      window.errorService.logError(error, {
+        context: 'AppErrorBoundary',
+        severity: 'critical',
+        metadata: { componentStack: errorInfo.componentStack },
+      });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-red-50">
+          <div className="max-w-md p-8 bg-white rounded-lg shadow-xl">
+            <div className="text-red-600 text-6xl mb-4">⚠️</div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">
+              Une erreur est survenue
+            </h1>
+            <p className="text-gray-600 mb-6">
+              L'application a rencontré un problème inattendu.
+            </p>
+            <details className="mb-6">
+              <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+                Détails techniques
+              </summary>
+              <pre className="mt-2 p-4 bg-gray-100 rounded text-xs overflow-auto">
+                {this.state.error?.toString()}
+              </pre>
+            </details>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition"
+            >
+              Recharger la page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// ============================================================================
+// MOCK GUEST USER
+// ============================================================================
+
 const GUEST_USER: UserProfile = {
   id: 'guest',
   username: 'Visiteur',
@@ -42,11 +142,23 @@ const GUEST_USER: UserProfile = {
   }
 };
 
+// ============================================================================
+// APP COMPONENT
+// ============================================================================
+
 const App: React.FC = () => {
   return (
-    <AppContent />
+    <AppErrorBoundary>
+      <Suspense fallback={<LoadingFallback message="Initialisation de l'application..." />}>
+        <AppContent />
+      </Suspense>
+    </AppErrorBoundary>
   );
 };
+
+// ============================================================================
+// APP CONTENT - Logique principale
+// ============================================================================
 
 const AppContent: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -55,8 +167,8 @@ const AppContent: React.FC = () => {
   const [showDashboard, setShowDashboard] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [showVoiceCall, setShowVoiceCall] = useState(false); // State remonté
-  const [verifyCertId, setVerifyCertId] = useState<string | null>(null); // Verification State
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [verifyCertId, setVerifyCertId] = useState<string | null>(null);
   
   // Modes
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice' | 'exam'>('chat');
@@ -66,487 +178,365 @@ const AppContent: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
+  // ============================================================================
   // 1. INITIALIZATION & AUTH LISTENER
+  // ============================================================================
+
   useEffect(() => {
     // Check URL for verification
     const path = window.location.pathname;
     if (path.startsWith('/verify/')) {
-        const certId = path.split('/verify/')[1];
-        if (certId) setVerifyCertId(certId);
+      const certId = path.split('/verify/')[1];
+      if (certId) setVerifyCertId(certId);
     }
 
     const init = async () => {
-        // Optimistic load
+      try {
+        // Optimistic load from localStorage
         const localUser = storageService.getLocalUser();
         if (localUser) {
-            setUser(localUser);
-            if (localUser.preferences?.targetLanguage) {
-                const localSession = await storageService.getOrCreateSession(localUser.id, localUser.preferences);
-                setCurrentSession(localSession);
-            }
+          setUser(localUser);
+          if (localUser.preferences?.targetLanguage) {
+            const localSession = await storageService.getOrCreateSession(
+              localUser.id,
+              localUser.preferences
+            );
+            setCurrentSession(localSession);
+          }
         }
 
         // Remote fetch (background)
         const curr = await storageService.getCurrentUser();
         if (curr) {
-            setUser(curr);
-            if (curr.preferences?.targetLanguage) {
-                const session = await storageService.getOrCreateSession(curr.id, curr.preferences);
-                setCurrentSession(session);
-            }
+          setUser(curr);
+          if (curr.preferences?.targetLanguage) {
+            const session = await storageService.getOrCreateSession(
+              curr.id,
+              curr.preferences
+            );
+            setCurrentSession(session);
+          }
         }
+      } catch (error) {
+        console.error('[App] Erreur initialisation:', error);
+        toast.error('Erreur de chargement. Vérifiez votre connexion.');
+      }
     };
-    init();
-    
-    // Auth State Listener
-    const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setCurrentSession(null);
-            setShowDashboard(false);
-            setShowAdmin(false);
-            setActiveMode('chat');
-            //storageService.logout();
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            if (session?.user) {
-                const updated = await storageService.getUserById(session.user.id);
-                if (updated) {
-                    setUser(updated);
-                    storageService.saveLocalUser(updated);
-                }
-            }
-        }
-    });
 
+    init();
+
+    // Supabase Auth Listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('[App] Auth event:', event);
+        
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setCurrentSession(null);
+          setShowAuth(false);
+          setShowDashboard(false);
+          setShowAdmin(false);
+        }
+        
+        if (event === 'SIGNED_IN' && session?.user) {
+          try {
+            const profile = await storageService.getUserProfile(session.user.id);
+            if (profile) {
+              setUser(profile);
+              toast.success(`✅ Bienvenue ${profile.username} !`);
+            }
+          } catch (error) {
+            console.error('[App] Erreur chargement profil:', error);
+          }
+        }
+      }
+    );
+
+    // Cleanup
     return () => {
-        authListener.unsubscribe();
+      authListener?.subscription?.unsubscribe();
     };
   }, []);
 
-  // 2. REAL-TIME SYNC SUBSCRIPTIONS
+  // ============================================================================
+  // 2. REALTIME UPDATES SUBSCRIPTION
+  // ============================================================================
+
   useEffect(() => {
     if (!user?.id) return;
 
-    // Local Updates (from other tabs or components)
-    const unsubscribeLocal = storageService.subscribeToUserUpdates((updatedUser) => {
-        setUser((currentUser) => {
-            // FIX: Sticky Preferences Protection
-            if (currentUser && currentUser.id === updatedUser.id) {
-                if (currentUser.preferences && (!updatedUser.preferences || !updatedUser.preferences.targetLanguage)) {
-                    return { ...updatedUser, preferences: currentUser.preferences };
-                }
-            }
-            return updatedUser;
-        });
-    });
-
-    // Remote Updates (from Supabase Realtime)
-    const unsubscribeRemote = storageService.subscribeToRemoteChanges(user.id);
-
-    return () => {
-        unsubscribeLocal();
-        unsubscribeRemote();
-    };
+    const unsubscribe = storageService.subscribeToRemoteChanges(user.id);
+    return () => unsubscribe();
   }, [user?.id]);
 
-  // 3. THEME & OFFLINE HANDLERS
+  // ============================================================================
+  // 3. DARK MODE TOGGLE
+  // ============================================================================
+
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDarkMode);
-    localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('tm_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('tm_theme', 'light');
+    }
   }, [isDarkMode]);
 
-  useEffect(() => {
-      const handleOffline = () => toast.error("Vous êtes hors ligne. Vérifiez votre connexion.");
-      const handleOnline = () => toast.success("Connexion rétablie !");
-      
-      window.addEventListener('offline', handleOffline);
-      window.addEventListener('online', handleOnline);
-      return () => {
-          window.removeEventListener('offline', handleOffline);
-          window.removeEventListener('online', handleOnline);
-      };
-  }, []);
+  // ============================================================================
+  // HANDLERS
+  // ============================================================================
 
-  // 4. FOCUS REFRESH
-  useEffect(() => {
-      const handleFocus = async () => {
-          if (user) {
-              const updated = await storageService.getUserById(user.id);
-              if (updated && (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended)) {
-                  setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
-                  if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
-              }
-          }
-      };
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-  }, [user?.id, user?.credits, user?.isSuspended]); // Optimized dependencies
-
-  const notify = (msg: string, type: string = 'info') => {
-    if (type === 'error') toast.error(msg);
-    else if (type === 'success') toast.success(msg);
-    else toast.info(msg);
-  };
-
-  const handleAuthSuccess = async (u: UserProfile) => {
-    setUser(u);
+  const handleLoginSuccess = async (profile: UserProfile) => {
+    setUser(profile);
     setShowAuth(false);
-    if (u.preferences && u.preferences.targetLanguage) {
-        const session = await storageService.getOrCreateSession(u.id, u.preferences);
-        setCurrentSession(session);
+
+    if (profile.preferences?.targetLanguage) {
+      const session = await storageService.getOrCreateSession(
+        profile.id,
+        profile.preferences
+      );
+      setCurrentSession(session);
     }
   };
 
-  const handleChangeCourse = async () => {
-      if (!user) return;
-      const updatedUser: UserProfile = {
-          ...user,
-          preferences: {
-              ...user.preferences!,
-              targetLanguage: '', 
-              level: '',
-          }
-      };
-      setUser(updatedUser);
-      await storageService.saveUserProfile(updatedUser);
-      setCurrentSession(null);
-  };
-
-  const handleOnboardingComplete = async (prefs: any) => {
-    if (!user || !prefs) return;
-    const selectedLang = prefs.targetLanguage || "English"; // Default fallback
-    
-    // Ensure preferences match UserPreferences type strictly
-    const newPreferences: UserPreferences = {
-        ...prefs,
-        targetLanguage: selectedLang,
-        // Ensure other required fields if any, or spread prefs
-    };
-
-    const updated: UserProfile = { 
-        ...user, 
-        preferences: newPreferences
-    };
-    setUser(updated);
-    await storageService.saveUserProfile(updated);
-    const session = await storageService.getOrCreateSession(user.id, newPreferences);
-    setCurrentSession(session);
-  };
-/*
   const handleLogout = async () => {
-    await storageService.logout();
-    setUser(null);
-    setCurrentSession(null);
-    setShowDashboard(false);
-    setShowAdmin(false);
-    setActiveMode('chat');
-  };
- remplacé par ceci:*/
-  const handleLogout = async () => {
-  await storageService.logout();
-  // Vider tous les états React
-  setUser(null);
-  setCurrentSession(null);
-  setShowDashboard(false);
-  setShowAdmin(false);
-  setActiveMode('chat');
-  // Forcer un rechargement complet pour vider toute la mémoire
-  window.location.href = '/';
-};
-
-
-  
-  const startExercise = async () => {
-      if (!user || !currentSession) return;
-      setIsGeneratingExercise(true);
-      try {
-          const exercises = await generateExerciseFromHistory(currentSession.messages, user);
-          if (exercises.length > 0) {
-              setCurrentExercises(exercises);
-              setActiveMode('exercise');
-          } else {
-              toast.error("Impossible de générer des exercices (Contexte insuffisant ou erreur).");
-          }
-      } catch (e) {
-          toast.error("Erreur lors de la génération.");
-      } finally {
-          setIsGeneratingExercise(false);
-      }
-  };
-
-  const startExam = () => {
-      setShowDashboard(false);
-      setActiveMode('exam');
-  };
-
-  const finishExercise = async (score: number, total: number) => {
-      if (user) {
-          toast.success(`Exercice terminé ! Score : ${score}/${total}`);
-      }
-      setActiveMode('chat');
-  };
-
-  // Handlers pour le Dashboard
-  const handleStartVoiceCall = () => {
-      setShowDashboard(false);
-      setShowVoiceCall(true);
-  };
-
-  const handleStartPractice = () => {
-      setShowDashboard(false);
-      setActiveMode('practice');
-  };
-
-  const handleStartExerciseFromDash = () => {
-      setShowDashboard(false);
-      startExercise();
-  };
-
-  const handleStartExamFromDash = () => {
-      setShowDashboard(false);
-      startExam();
-  };
-
-  const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
-
-  const getAgentContext = () => {
-      if (!user) return "Page d'Accueil (Visiteur non connecté) - Présentation de TeacherMada";
-      if (needsOnboarding) return "Configuration du Profil (Langue/Niveau)";
-      if (showAdmin) return "Panneau Administrateur";
-      if (showPayment) return "Rechargement de Crédits";
-      if (showDashboard) return "Profil Utilisateur & Statistiques";
-      if (activeMode === 'exercise') return "Session d'Exercices (Quiz)";
-      if (activeMode === 'exam') return "Examen Final & Certification";
-      if (activeMode === 'practice') return "Session de Dialogue (Roleplay)";
-      if (showVoiceCall) return "Appel Vocal en Direct (TeacherMada Live)";
-      return `Chat Principal - Apprentissage du ${user.preferences?.targetLanguage || 'Language'}`;
-  };
-
-  const handleResumeCourse = async () => {
-    if (!user || !user.preferences) return;
-    if (isResuming) return;
-    
-    setIsResuming(true);
-    
     try {
-        console.log("Resuming course for user:", user.id);
-        
-        const session = await storageService.getOrCreateSession(user.id, user.preferences);
-
-        if (session && session.id) {
-            setCurrentSession(session);
-            toast.success("Cours repris avec succès !");
-        } else {
-            throw new Error("Session invalide");
-        }
+      await supabase.auth.signOut();
+      setUser(null);
+      setCurrentSession(null);
+      setShowDashboard(false);
+      setShowAdmin(false);
+      toast.success('Déconnexion réussie');
     } catch (error) {
-        console.error("Error resuming course:", error);
-        toast.error("Impossible de reprendre le cours. Vérifiez votre connexion.");
-    } finally {
-        setIsResuming(false);
+      console.error('[App] Erreur déconnexion:', error);
+      toast.error('Erreur lors de la déconnexion');
     }
   };
 
+  const handleOnboardingComplete = async (prefs: UserPreferences) => {
+    if (!user) return;
+
+    try {
+      await storageService.updateProfile(user.id, { preferences: prefs });
+      const updated = await storageService.getUserProfile(user.id);
+      if (updated) {
+        setUser(updated);
+        const session = await storageService.getOrCreateSession(updated.id, prefs);
+        setCurrentSession(session);
+      }
+    } catch (error) {
+      console.error('[App] Erreur onboarding:', error);
+      toast.error('Erreur de configuration');
+    }
+  };
+
+  const handleUpdateSession = async (session: LearningSession) => {
+    setCurrentSession(session);
+    if (user?.id) {
+      await storageService.updateSession(user.id, session);
+    }
+  };
+
+  const handleGenerateExercise = async () => {
+    if (!user || !currentSession?.chatHistory) return;
+
+    setIsGeneratingExercise(true);
+    try {
+      const exercises = await generateExerciseFromHistory(
+        currentSession.chatHistory,
+        user
+      );
+      
+      if (exercises.length > 0) {
+        setCurrentExercises(exercises);
+        setActiveMode('exercise');
+        toast.success(`✨ ${exercises.length} exercices générés !`);
+      } else {
+        toast.error('Impossible de générer des exercices. Continuez la conversation.');
+      }
+    } catch (error) {
+      console.error('[App] Erreur génération exercices:', error);
+      toast.error('Erreur lors de la génération des exercices');
+    } finally {
+      setIsGeneratingExercise(false);
+    }
+  };
+
+  // ============================================================================
+  // RENDER - Avec Suspense pour chaque composant lazy
+  // ============================================================================
+
+  // Certificate Verification Mode
   if (verifyCertId) {
-      return (
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
-              <Toaster />
-              <VerifyCertificate 
-                  certId={verifyCertId} 
-                  onClose={() => {
-                      setVerifyCertId(null);
-                      window.history.pushState({}, '', '/');
-                  }} 
-              />
-          </div>
-      );
+    return (
+      <Suspense fallback={<LoadingFallback message="Vérification du certificat..." />}>
+        <VerifyCertificate
+          certId={verifyCertId}
+          onClose={() => {
+            setVerifyCertId(null);
+            window.history.pushState({}, '', '/');
+          }}
+        />
+      </Suspense>
+    );
   }
 
+  // Admin Dashboard
   if (showAdmin && user?.role === 'admin') {
-      return (
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
-              <Toaster />
-              <AdminDashboard 
-                  currentUser={user}
-                  onBack={() => setShowAdmin(false)}
-                  onLogout={handleLogout}
-                  isDarkMode={isDarkMode}
-                  notify={notify}
-              />
-          </div>
-      );
+    return (
+      <Suspense fallback={<LoadingFallback message="Chargement du panneau admin..." />}>
+        <AdminDashboard onClose={() => setShowAdmin(false)} />
+        <Toaster />
+      </Suspense>
+    );
   }
 
+  // Auth Screen
+  if (showAuth) {
+    return (
+      <Suspense fallback={<LoadingFallback message="Chargement de l'authentification..." />}>
+        <AuthScreen
+          onLoginSuccess={handleLoginSuccess}
+          onClose={() => setShowAuth(false)}
+        />
+        <Toaster />
+      </Suspense>
+    );
+  }
+
+  // Landing Page (no user logged in)
+  if (!user || user.id === 'guest') {
+    return (
+      <Suspense fallback={<LoadingFallback message="Chargement de la page d'accueil..." />}>
+        <LandingPage
+          onLogin={() => setShowAuth(true)}
+          guestUser={GUEST_USER}
+          isDarkMode={isDarkMode}
+          toggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        />
+        <Toaster />
+      </Suspense>
+    );
+  }
+
+  // Onboarding (user without preferences)
+  if (!user.preferences?.targetLanguage) {
+    return (
+      <Suspense fallback={<LoadingFallback message="Configuration de votre profil..." />}>
+        <Onboarding
+          user={user}
+          onComplete={handleOnboardingComplete}
+          onLogout={handleLogout}
+        />
+        <Toaster />
+      </Suspense>
+    );
+  }
+
+  // Main Application
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
-      <Toaster />
-      <DebugConsole />
-
-      {!showAdmin && (
-          <TutorialAgent user={user || GUEST_USER} context={getAgentContext()} />
-      )}
-
-      {isGeneratingExercise && (
-          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
-              <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
-              <p className="font-bold text-lg">Un prof prépare vos exercices...</p>
-          </div>
-      )}
-
-      {/* Live Voice Call Overlay */}
-      {showVoiceCall && user && (
-          <LiveTeacher 
-              user={user} 
-              onClose={() => setShowVoiceCall(false)} 
-              onUpdateUser={(updated) => {
-                  setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
-              }} 
-              notify={notify}
-              onShowPayment={() => setShowPayment(true)}
+    <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
+      <Suspense fallback={<LoadingFallback message="Chargement de l'interface..." />}>
+        {/* Dashboard Modal */}
+        {showDashboard && (
+          <SmartDashboard
+            user={user}
+            onClose={() => setShowDashboard(false)}
+            onUpdateUser={setUser}
+            onOpenPayment={() => setShowPayment(true)}
           />
-      )}
+        )}
 
-      {!user && !showAuth && (
-        <LandingPage onStart={() => setShowAuth(true)} isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />
-      )}
+        {/* Payment Modal */}
+        {showPayment && (
+          <PaymentModal
+            user={user}
+            onClose={() => setShowPayment(false)}
+            onSuccess={(newCredits) => {
+              setUser({ ...user, credits: newCredits });
+              setShowPayment(false);
+            }}
+          />
+        )}
 
-      {!user && showAuth && (
-        <AuthScreen 
-          onAuthSuccess={handleAuthSuccess} 
-          onBack={() => setShowAuth(false)} 
-          isDarkMode={isDarkMode} 
-          toggleTheme={() => setIsDarkMode(!isDarkMode)} 
-          notify={notify} 
-        />
-      )}
+        {/* Voice Call */}
+        {showVoiceCall && user.preferences && (
+          <LiveTeacher
+            user={user}
+            preferences={user.preferences}
+            onClose={() => setShowVoiceCall(false)}
+            onUpdateUser={setUser}
+          />
+        )}
 
-      {user && needsOnboarding && (
-        <Onboarding 
-          onComplete={handleOnboardingComplete} 
-          isDarkMode={isDarkMode} 
-          toggleTheme={() => setIsDarkMode(!isDarkMode)} 
-        />
-      )}
+        {/* Main Content - Modes */}
+        {activeMode === 'chat' && currentSession && (
+          <ChatInterface
+            user={user}
+            session={currentSession}
+            onUpdateSession={handleUpdateSession}
+            onOpenDashboard={() => setShowDashboard(true)}
+            onLogout={handleLogout}
+            onGenerateExercise={handleGenerateExercise}
+            onOpenAdmin={user.role === 'admin' ? () => setShowAdmin(true) : undefined}
+            isGeneratingExercise={isGeneratingExercise}
+            onOpenVoiceCall={() => setShowVoiceCall(true)}
+            onChangeMode={(mode) => setActiveMode(mode)}
+          />
+        )}
 
-      {user && !needsOnboarding && currentSession && (
-        <>
-          {activeMode === 'chat' && !showVoiceCall && (
-              <ChatInterface 
-                user={user} 
-                session={currentSession} 
-                onShowProfile={() => setShowDashboard(true)}
-                onExit={() => setCurrentSession(null)}
-                onUpdateUser={(updated) => {
-                    setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
-                }}
-                onStartPractice={() => setActiveMode('practice')}
-                onStartExercise={startExercise}
-                onStartExam={startExam}
-                notify={notify}
-                onShowPayment={() => setShowPayment(true)}
-                onChangeCourse={handleChangeCourse}
-                onStartVoiceCall={() => setShowVoiceCall(true)}
-              />
-          )}
+        {activeMode === 'exercise' && (
+          <ExerciseSession
+            exercises={currentExercises}
+            user={user}
+            onBack={() => setActiveMode('chat')}
+          />
+        )}
 
-          {activeMode === 'exercise' && (
-              <ExerciseSession 
-                  exercises={currentExercises}
-                  onClose={() => setActiveMode('chat')}
-                  onComplete={finishExercise}
-              />
-          )}
+        {activeMode === 'practice' && user.preferences && (
+          <DialogueSession
+            user={user}
+            preferences={user.preferences}
+            onBack={() => setActiveMode('chat')}
+            onUpdateUser={setUser}
+          />
+        )}
 
-          {activeMode === 'exam' && (
-              <React.Suspense fallback={
-                  <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
-                      <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
-                      <p className="font-bold text-lg">Chargement du module Examen...</p>
-                  </div>
-              }>
-                  <ExamHub 
-                      user={user}
-                      onClose={() => setActiveMode('chat')}
-                      onUpdateUser={setUser}
-                      onShowPayment={() => setShowPayment(true)}
-                  />
-              </React.Suspense>
-          )}
+        {activeMode === 'exam' && (
+          <ExamHub
+            user={user}
+            onClose={() => setActiveMode('chat')}
+            onUpdateUser={setUser}
+          />
+        )}
 
-          {activeMode === 'practice' && (
-              <DialogueSession 
-                  user={user}
-                  onClose={() => setActiveMode('chat')}
-                  onUpdateUser={(updated) => {
-                      setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
-                  }}
-                  notify={notify}
-                  onShowPayment={() => setShowPayment(true)}
-              />
-          )}
+        {/* Tutorial Agent */}
+        {user.preferences && (
+          <TutorialAgent
+            user={user}
+            preferences={user.preferences}
+          />
+        )}
 
-          {showDashboard && (
-            <SmartDashboard 
-              user={user} 
-              onClose={() => setShowDashboard(false)} 
-              onUpdateUser={setUser} 
-              onLogout={handleLogout}
-              isDarkMode={isDarkMode} 
-              toggleTheme={() => setIsDarkMode(!isDarkMode)}
-              messages={currentSession.messages}
-              onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }}
-              onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }}
-              onStartPractice={handleStartPractice}
-              onStartExercise={handleStartExerciseFromDash}
-              onStartVoice={handleStartVoiceCall}
-              onStartExam={handleStartExamFromDash}
-            />
-          )}
+        {/* Debug Console (dev mode) */}
+        {import.meta.env.DEV && <DebugConsole />}
 
-          {showPayment && (
-              <PaymentModal 
-                  user={user}
-                  onClose={() => setShowPayment(false)}
-              />
-          )}
-        </>
-      )}
-
-      {user && !needsOnboarding && !currentSession && !showAdmin && !showVoiceCall && (
-        <div className="h-screen flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-900 animate-fade-in">
-           <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white mb-8 shadow-2xl shadow-indigo-500/40">
-             <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-12 h-12" />
-           </div>
-           <h1 className="text-2xl font-black mb-2">Bon retour, {user.username} !</h1>
-           <p className="text-slate-500 mb-10 text-center">Prêt à continuer votre apprentissage du {user.preferences?.targetLanguage} ?</p>
-           
-           <div className="space-y-4 w-full max-w-sm">
-             <button 
-                onClick={handleResumeCourse}
-                disabled={isResuming}
-                className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-[1.02] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-             >
-               {isResuming ? (
-                   <>
-                       <Loader2 className="w-5 h-5 animate-spin" />
-                       Reprise en cours...
-                   </>
-               ) : (
-                   "Reprendre mon cours"
-               )}
-             </button>
-             <button 
-                onClick={handleChangeCourse}
-                className="w-full py-4 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
-             >
-               Changer de langue ou niveau
-             </button>
-             <button onClick={handleLogout} className="w-full py-2 text-red-500 text-sm font-bold">Déconnexion</button>
-           </div>
-        </div>
-      )}
+        <Toaster />
+      </Suspense>
     </div>
   );
 };
 
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
 export default App;
+
+// Déclaration globale pour errorService
+declare global {
+  interface Window {
+    errorService?: any;
+  }
+}
