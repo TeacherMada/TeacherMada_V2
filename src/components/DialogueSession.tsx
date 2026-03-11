@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { memo } from 'react'; //memo
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -474,4 +475,5 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   );
 };
 
-export default DialogueSession;
+//export default DialogueSession;
+export default memo(DialogueSession);
