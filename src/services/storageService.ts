@@ -25,6 +25,7 @@ const notifyListeners = (user: UserProfile) => {
 
 
 // En haut du fichier
+/*
 const DEBUG = import.meta.env.DEV;
 const log = (category: string, message: string, data?: any) => {
   if (DEBUG) {
@@ -32,7 +33,7 @@ const log = (category: string, message: string, data?: any) => {
   }
 };
 // Utiliser partout
-log('deductCredits', 'Success', { amount, newBalance });
+log('deductCredits', 'Success', { amount, newBalance });*/
 
 
 
