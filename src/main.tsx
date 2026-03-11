@@ -7,11 +7,11 @@ import { LanguageProvider } from './contexts/LanguageContext';
 
 
 // ✨ NOUVEAU : Initialiser errorService globalement
-import { errorService } from './services/errorService';
+/*import { errorService } from './services/errorService';
 if (typeof window !== 'undefined') {
   window.errorService = errorService;
 }
-
+*/
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error("Root element not found");
