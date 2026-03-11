@@ -85,6 +85,68 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, lastCorrection, isLoading]);
 
+  
+// Dans src/components/DialogueSession.tsx
+
+// AJOUTER après les autres useEffect :
+
+// Sauvegarde automatique toutes les 30s
+useEffect(() => {
+  if (step !== 'chat' || messages.length === 0) return;
+
+  const saveInterval = setInterval(() => {
+    const sessionData = {
+      scenario: scenario?.id,
+      messages,
+      secondsActive,
+      selectedLang,
+      selectedLevel,
+      timestamp: Date.now(),
+    };
+
+    localStorage.setItem(
+      `dialogue_session_${user.id}`,
+      JSON.stringify(sessionData)
+    );
+    console.log('[Dialogue] Session sauvegardée ✓');
+  }, 30000);
+
+  return () => clearInterval(saveInterval);
+}, [messages, secondsActive, step, scenario, selectedLang, selectedLevel, user.id]);
+
+// Restauration au montage
+useEffect(() => {
+  const savedSession = localStorage.getItem(`dialogue_session_${user.id}`);
+  if (savedSession) {
+    try {
+      const data = JSON.parse(savedSession);
+      const age = Date.now() - data.timestamp;
+      
+      if (age < 24 * 60 * 60 * 1000) { // < 24h
+        const restore = window.confirm(
+          'Session précédente trouvée. Continuer où vous étiez ?'
+        );
+        
+        if (restore) {
+          setMessages(data.messages);
+          setSecondsActive(data.secondsActive);
+          setSelectedLang(data.selectedLang);
+          setSelectedLevel(data.selectedLevel);
+          const foundScenario = SCENARIOS.find(s => s.id === data.scenario);
+          if (foundScenario) setScenario(foundScenario);
+          setStep('chat');
+        } else {
+          localStorage.removeItem(`dialogue_session_${user.id}`);
+        }
+      }
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  }
+}, [user.id]);
+
+
+  
   // --- Handlers ---
 
   const confirmSetup = () => {
