@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { memo } from 'react'; //memo
 import { Send, Phone, ArrowRight, X, Languages, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen, Trophy, Cloud, CloudOff, CloudLightning, LogOut, Award } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech, generateText } from '../services/geminiService';
@@ -715,4 +716,6 @@ const ChatInterface: React.FC<Props> = ({
   );
 };
 
-export default ChatInterface;
+//export default ChatInterface;
+
+export default memo(ChatInterface);
