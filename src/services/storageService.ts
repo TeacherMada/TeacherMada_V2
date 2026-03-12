@@ -208,17 +208,7 @@ export const storageService = {
       // Cas spécial : email non confirmé → auto-confirmation via RPC
       if (authError?.message?.toLowerCase().includes('email not confirmed')) {
         console.warn('[Login] Email non confirmé — tentative auto-confirmation...');
-
-try {
-  const { error: confirmError } = await supabase.rpc('admin_confirm_user_email', { p_email: email });
-  if (confirmError) {
-    console.warn('[Login] Auto-confirmation échouée:', confirmError.message);
-  }
-} catch (e) {
-  console.warn('[Login] Auto-confirmation exception:', e);
-}
-
-        
+        await supabase.rpc('admin_confirm_user_email', { p_email: email }).catch(() => {});
         // Retenter
         const { data: retry, error: retryErr } = await supabase.auth.signInWithPassword({ email, password });
         if (retryErr || !retry?.user) {
@@ -306,17 +296,8 @@ try {
       if (!authData.user) return { success: false, error: 'Erreur lors de la création du compte.' };
 
       // Auto-confirmer l'email immédiatement
-      try {
-  const { error: confirmError } = await supabase.rpc('admin_confirm_user_email', { p_email: finalEmail });
-  if (confirmError) {
-    console.warn('[Register] Auto-confirmation échouée:', confirmError.message);
-  }
-} catch (e) {
-  console.warn('[Register] Auto-confirmation exception:', e);
-}
+      await supabase.rpc('admin_confirm_user_email', { p_email: finalEmail }).catch(() => {});
 
-
-      
       const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail);
       if (phoneNumber?.trim()) (payload as any).phone_number = phoneNumber.trim();
 
@@ -689,8 +670,8 @@ try {
             const remoteSession: LearningSession = {
               id:        data.id,
               userId:    data.user_id,
-              type:      (data.mode || 'lesson') as any,
-              language:  data.target_language || cleanLang,
+              type:      (data.type || data.mode || 'lesson') as any,  // ✅ v4_light: 'type'
+              language:  data.language || data.target_language || cleanLang, // ✅ v4_light: 'language'
               level:     data.level,
               messages:  remoteMessages,
               updatedAt: remoteUpdatedAt,
@@ -770,15 +751,18 @@ try {
     if (!isSupabaseConfigured()) return;
 
     // 2. Sync Supabase
+    // ✅ Colonnes selon schéma v4_light : type + language (PAS mode/target_language/expires_at)
+    const VALID_TYPES = ['lesson', 'exercise', 'dialogue', 'exam', 'call'] as const;
+    const sessionType = VALID_TYPES.includes(session.type as any) ? session.type : 'lesson';
     const payload = {
-      id:              session.id,
-      user_id:         session.userId,
-      target_language: session.language,
-      level:           session.level,
-      mode:            session.type || 'lesson',
-      messages:        session.messages,
-      updated_at:      new Date(session.updatedAt).toISOString(),
-      expires_at:      new Date(session.updatedAt + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      id:         session.id,
+      user_id:    session.userId,
+      type:       sessionType,          // ✅ était 'mode' → violation NOT NULL
+      language:   session.language,     // ✅ était 'target_language'
+      level:      session.level,
+      messages:   session.messages,
+      updated_at: new Date(session.updatedAt).toISOString(),
+      // ❌ expires_at supprimé — n'existe pas dans le schéma v4_light
     };
 
     if (navigator.onLine) {
