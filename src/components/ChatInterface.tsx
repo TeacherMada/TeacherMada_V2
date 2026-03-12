@@ -1208,4 +1208,5 @@ export const storageService = {
   },
 };
 
-export default ChatInterface;
+//export default ChatInterface;
+export default storageService;
