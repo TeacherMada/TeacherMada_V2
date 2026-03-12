@@ -161,36 +161,79 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   }, [duration, hasInitialBilling]);
 
   // ── NOUVEAU : Fonctions de billing séparées ──────────────────────────────
-  const processInitialBilling = async () => {
-      const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-      
-      if (success) {
-          setHasInitialBilling(true);
-          const updatedUser = await storageService.getUserById(user.id);
-          if (updatedUser) onUpdateUser(updatedUser);
-          notify(`-${COST_PER_MINUTE} Crédits (démarrage)`, "info");
-          console.log('[Billing] ✅ Initial billing successful');
-      } else {
-          notify("Crédits insuffisants ! Fin de l'appel.", "error");
-          console.error('[Billing] ❌ Initial billing failed - hanging up');
-          handleHangup();
-      }
-  };
+  const processRecurringBilling = async () => {
+    console.log('[Billing] ━━━━━━ RECURRING BILLING START ━━━━━━');
+    console.log('[Billing] Duration:', duration, 'seconds');
+    console.log('[Billing] User ID:', user.id);
+    console.log('[Billing] Amount:', COST_PER_MINUTE);
+    
+    try {
+        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+        console.log('[Billing] deductCredits returned:', success);
+        
+        if (success) {
+            const updatedUser = await storageService.getUserById(user.id);
+            console.log('[Billing] Updated user:', updatedUser);
+            
+            if (updatedUser) {
+                onUpdateUser(updatedUser);
+            }
+            
+            notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
+            console.log('[Billing] ✅ Recurring billing SUCCESS');
+            console.log('[Billing] New credits:', updatedUser?.credits);
+        } else {
+            console.error('[Billing] ❌ deductCredits returned FALSE');
+            notify("Crédits épuisés ! Fin de l'appel.", "error");
+            handleHangup();
+        }
+    } catch (error) {
+        console.error('[Billing] ❌ Exception during recurring billing:', error);
+        notify("Erreur lors de la déduction des crédits.", "error");
+        handleHangup();
+    }
+    
+    console.log('[Billing] ━━━━━━ RECURRING BILLING END ━━━━━━');
+};
+
+  
 
   const processRecurringBilling = async () => {
-      const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-      
-      if (success) {
-          const updatedUser = await storageService.getUserById(user.id);
-          if (updatedUser) onUpdateUser(updatedUser);
-          notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
-          console.log('[Billing] ✅ Recurring billing successful');
-      } else {
-          notify("Crédits épuisés ! Fin de l'appel.", "error");
-          console.error('[Billing] ❌ Recurring billing failed - hanging up');
-          handleHangup();
-      }
-  };
+    console.log('[Billing] ━━━━━━ RECURRING BILLING START ━━━━━━');
+    console.log('[Billing] Duration:', duration, 'seconds');
+    console.log('[Billing] User ID:', user.id);
+    console.log('[Billing] Amount:', COST_PER_MINUTE);
+    
+    try {
+        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+        console.log('[Billing] deductCredits returned:', success);
+        
+        if (success) {
+            const updatedUser = await storageService.getUserById(user.id);
+            console.log('[Billing] Updated user:', updatedUser);
+            
+            if (updatedUser) {
+                onUpdateUser(updatedUser);
+            }
+            
+            notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
+            console.log('[Billing] ✅ Recurring billing SUCCESS');
+            console.log('[Billing] New credits:', updatedUser?.credits);
+        } else {
+            console.error('[Billing] ❌ deductCredits returned FALSE');
+            notify("Crédits épuisés ! Fin de l'appel.", "error");
+            handleHangup();
+        }
+    } catch (error) {
+        console.error('[Billing] ❌ Exception during recurring billing:', error);
+        notify("Erreur lors de la déduction des crédits.", "error");
+        handleHangup();
+    }
+    
+    console.log('[Billing] ━━━━━━ RECURRING BILLING END ━━━━━━');
+};
+
+  
 
   // ── NOUVEAU : Fonction pour changer de voix ──────────────────────────────
   const handleVoiceChange = (voiceId: string) => {
@@ -415,7 +458,7 @@ GOLDEN RULES:
 3. Speak 95% ${targetLang}, 5% French
 4. Listen actively - build on student's words
 5. Make learning fun and low-stress
-6. You and TeacherMada are not an AI or Robots, we are human natural native
+6. You and TeacherMada are not an AI or Robots, we are profesor human natural nativ profesionnal
 
 YOUR GOAL:
 Build student's confidence and fluency through natural conversation,
@@ -598,13 +641,12 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               
               {/* ── NOUVEAU : Bouton sélection voix ────────────────────── */}
               <button
-                  onClick={() => setShowVoiceSelector(!showVoiceSelector)}
-                  disabled={status === 'connected'}
-                  className="mt-3 flex items-center gap-2 px-4 py-2 bg-slate-800/60 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all"
-              >
-                  <User className="w-3 h-3"/>
-                  Voix: {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.name}
-              </button>
+    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+    className="mt-3 flex items-center gap-2 px-4 py-2 bg-slate-800/60 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all"
+>
+    <User className="w-3 h-3"/>
+    Voix: {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.name}
+</button>
               
               {/* Timer + Billing Info */}
               <div className="flex items-center gap-3 mt-4">
@@ -629,6 +671,16 @@ NOW: Start the session with a warm greeting in ${targetLang}!
                           <User className="w-5 h-5"/>
                           Choisir la Voix
                       </h3>
+                    {/* ── NOUVEAU : Warning si appel en cours ────────────────────── */}
+{status === 'connected' && (
+    <div className="mb-4 p-3 bg-amber-900/20 border border-amber-600/30 rounded-xl">
+        <p className="text-xs text-amber-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4"/>
+            La voix sera appliquée au <strong>prochain appel</strong>
+        </p>
+    </div>
+)}
+                    
                       <div className="grid grid-cols-2 gap-3 mb-6">
                           {AVAILABLE_VOICES.map(voice => (
                               <button
