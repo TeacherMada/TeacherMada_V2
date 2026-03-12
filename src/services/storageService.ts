@@ -468,52 +468,154 @@ export const storageService = {
     return storageService.deductCredits(userId, 1);
   },
 
-  deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-    const local = storageService.getLocalUser();
-    if (!local || local.id !== userId) return false;
-    if (local.role === 'admin') return true;
+  // ============================================================================
+// FIX DEDUCTCREDITS - SUPABASE UNIQUEMENT AVEC TIMEOUT
+// ============================================================================
+// À REMPLACER dans src/services/storageService.ts
+// Chercher la fonction deductCredits et remplacer par celle-ci
+// ============================================================================
 
-    if (!isSupabaseConfigured()) {
-      if (local.credits < amount) return false;
-      storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-      return true;
-    }
+deductCredits: async (userId: string, amount: number): Promise<boolean> => {
+  console.log('[deductCredits] ━━━ START ━━━');
+  console.log('[deductCredits] User ID:', userId);
+  console.log('[deductCredits] Amount:', amount);
+  
+  const local = storageService.getLocalUser();
+  if (!local || local.id !== userId) {
+    console.warn('[deductCredits] ❌ User not found locally');
+    return false;
+  }
 
-    try {
-      const { data, error } = await supabase.rpc('consume_credits', {
-        p_user_id: userId,
-        p_amount:  amount,
-      });
+  console.log('[deductCredits] Current local credits:', local.credits);
 
-      if (error) {
-        console.error('[deductCredits] RPC error:', error.message);
-        if (local.credits >= amount) {
-          storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-          return true;
-        }
-        return false;
-      }
+  // Admin bypass
+  if (local.role === 'admin') {
+    console.log('[deductCredits] ℹ️ Admin user - credits not deducted');
+    return true;
+  }
 
-      if (!data?.success) {
-        console.warn('[deductCredits] Échec:', data?.reason, '| Solde:', data?.current_balance);
-        if (typeof data?.current_balance === 'number') {
-          storageService.saveLocalUser({ ...local, credits: data.current_balance });
-        }
-        return false;
-      }
+  // Vérifier crédits suffisants (pré-check)
+  if (local.credits < amount) {
+    console.warn('[deductCredits] ❌ Insufficient local credits:', local.credits, '<', amount);
+    return false;
+  }
 
-      storageService.saveLocalUser({ ...local, credits: data.new_balance });
-      return true;
+  // Mode offline → échec (Supabase requis)
+  if (!isSupabaseConfigured()) {
+    console.error('[deductCredits] ❌ Supabase not configured - cannot deduct credits');
+    return false;
+  }
 
-    } catch (e: any) {
-      console.error('[deductCredits] Exception:', e.message);
-      if (local.credits >= amount) {
-        storageService.saveLocalUser({ ...local, credits: local.credits - amount });
-        return true;
-      }
+  // ═══════════════════════════════════════════════════════════════════════
+  // SUPABASE RPC AVEC TIMEOUT (5 secondes max)
+  // ═══════════════════════════════════════════════════════════════════════
+  
+  console.log('[deductCredits] 🔄 Calling Supabase RPC consume_credits...');
+  
+  try {
+    // Timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('RPC timeout after 5 seconds'));
+      }, 5000);
+    });
+    
+    // RPC promise
+    const rpcPromise = supabase.rpc('consume_credits', {
+      p_user_id: userId,
+      p_amount: amount
+    });
+    
+    console.log('[deductCredits] ⏳ Waiting for response (max 5s)...');
+    
+    // Race entre RPC et timeout
+    const { data, error } = await Promise.race([
+      rpcPromise,
+      timeoutPromise
+    ]) as { data: any; error: any };
+    
+    console.log('[deductCredits] 📩 Response received');
+    
+    // Erreur RPC
+    if (error) {
+      console.error('[deductCredits] ❌ RPC error:', error.message);
+      console.error('[deductCredits] Error code:', error.code);
+      console.error('[deductCredits] Error details:', error.details);
+      console.error('[deductCredits] Error hint:', error.hint);
       return false;
     }
-  },
+    
+    // Pas de data
+    if (!data) {
+      console.error('[deductCredits] ❌ No data returned from RPC');
+      return false;
+    }
+    
+    console.log('[deductCredits] 📦 Data received:', JSON.stringify(data));
+    
+    // Vérifier format réponse
+    if (typeof data !== 'object') {
+      console.error('[deductCredits] ❌ Invalid data type:', typeof data);
+      console.error('[deductCredits] Expected object, got:', data);
+      return false;
+    }
+    
+    // Vérifier succès
+    if (!data.success) {
+      console.warn('[deductCredits] ⚠️ Operation failed on server');
+      console.warn('[deductCredits] Reason:', data.reason || 'Unknown');
+      console.warn('[deductCredits] Current balance:', data.current_balance);
+      return false;
+    }
+    
+    // ✅ SUCCÈS - Mettre à jour local avec balance Supabase
+    console.log('[deductCredits] ✅ RPC SUCCESS');
+    console.log('[deductCredits] Previous balance:', data.current_balance);
+    console.log('[deductCredits] New balance:', data.new_balance);
+    console.log('[deductCredits] Amount deducted:', data.amount_deducted);
+    
+    // Sync local avec Supabase (source de vérité)
+    storageService.saveLocalUser({ 
+      ...local, 
+      credits: data.new_balance 
+    });
+    
+    console.log('[deductCredits] 💾 Local storage updated to match Supabase');
+    console.log('[deductCredits] ━━━ END (SUCCESS) ━━━');
+    
+    return true;
+    
+  } catch (error: any) {
+    // Timeout ou autre erreur
+    console.error('[deductCredits] ❌ Exception:', error.message);
+    
+    if (error.message.includes('timeout')) {
+      console.error('[deductCredits] ⏰ Supabase took too long to respond');
+      console.error('[deductCredits] Possible causes:');
+      console.error('[deductCredits]   - Supabase database slow/overloaded');
+      console.error('[deductCredits]   - Network issue');
+      console.error('[deductCredits]   - Function consume_credits has infinite loop');
+    }
+    
+    console.log('[deductCredits] ━━━ END (FAILURE) ━━━');
+    return false;
+  }
+},
+
+// ============================================================================
+// POINTS CLÉS DE CETTE VERSION
+// ============================================================================
+//
+// 1. ✅ SUPABASE UNIQUEMENT (pas de fallback local)
+// 2. ✅ TIMEOUT 5 secondes (pas d'attente infinie)
+// 3. ✅ LOGS DÉTAILLÉS à chaque étape
+// 4. ✅ Gestion erreur robuste
+// 5. ✅ Sync local = Supabase (source de vérité)
+//
+// SI TIMEOUT → FALSE (LiveTeacher échouera, mais proprement)
+// SI SUCCÈS → Local mis à jour avec balance exacte de Supabase
+//
+// ============================================================================
 
   checkCredits: async (userId: string): Promise<number> => {
     const local = storageService.getLocalUser();
