@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins, Globe, Zap } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins, Globe, Zap, User } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -17,9 +16,28 @@ interface LiveTeacherProps {
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
-const COST_PER_MINUTE = 5; 
+const COST_PER_MINUTE = 5;
+const INITIAL_BILLING_DELAY = 5000; // 5 secondes avant première facturation
 
-// --- UTILS AUDIO ---
+// --- VOIX DISPONIBLES ---
+interface VoiceOption {
+    id: string;
+    name: string;
+    gender: 'M' | 'F' | 'N';
+    description: string;
+    emoji: string;
+}
+
+const AVAILABLE_VOICES: VoiceOption[] = [
+    { id: 'Puck', name: 'Puck', gender: 'M', description: 'Énergique et dynamique', emoji: '⚡' },
+    { id: 'Charon', name: 'Charon', gender: 'M', description: 'Calme et posé', emoji: '🧘' },
+    { id: 'Kore', name: 'Kore', gender: 'F', description: 'Dynamique et claire', emoji: '✨' },
+    { id: 'Fenrir', name: 'Fenrir', gender: 'M', description: 'Grave et autoritaire', emoji: '🦁' },
+    { id: 'Aoede', name: 'Aoede', gender: 'F', description: 'Douce et mélodieuse', emoji: '🎵' },
+    { id: 'Zephyr', name: 'Zephyr', gender: 'N', description: 'Neutre et professionnelle', emoji: '🌬️' },
+];
+
+// --- UTILS AUDIO (inchangés) ---
 const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     const binaryString = atob(base64);
     const len = binaryString.length;
@@ -80,6 +98,16 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
   
+  // ── NOUVEAU : Sélection de voix ──────────────────────────────────────────
+  const [showVoiceSelector, setShowVoiceSelector] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<string>(
+      localStorage.getItem('teachermada_preferred_voice') || 'Kore'
+  );
+  
+  // ── NOUVEAU : Billing state ──────────────────────────────────────────────
+  const [hasInitialBilling, setHasInitialBilling] = useState(false);
+  const initialBillingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -91,11 +119,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       startSession();
       return () => {
           isMountedRef.current = false;
+          if (initialBillingTimerRef.current) {
+              clearTimeout(initialBillingTimerRef.current);
+          }
           handleHangup();
       };
   }, []);
 
-  // --- TIMER & BILLING LOGIC ---
+  // --- TIMER ---
   useEffect(() => {
       let interval: any;
       if (status === 'connected') {
@@ -106,26 +137,74 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       return () => clearInterval(interval);
   }, [status]);
 
-  // Billing Effect : Triggered every 60s
+  // ── NOUVEAU : Initial Billing (5s après connexion) ───────────────────────
   useEffect(() => {
-      if (duration > 0 && duration % 60 === 0) {
-          processBilling();
+      if (status === 'connected' && !hasInitialBilling) {
+          console.log('[Billing] Scheduling initial billing in 5s...');
+          
+          initialBillingTimerRef.current = setTimeout(async () => {
+              console.log('[Billing] Processing initial billing (5 credits)');
+              await processInitialBilling();
+          }, INITIAL_BILLING_DELAY);
       }
-  }, [duration]);
+  }, [status, hasInitialBilling]);
 
-  const processBilling = async () => {
+  // ── NOUVEAU : Billing récurrent (chaque minute) ──────────────────────────
+  useEffect(() => {
+      // Ne facturer QUE si :
+      // 1. Billing initial déjà fait
+      // 2. Durée est un multiple de 60s (et > 0)
+      if (hasInitialBilling && duration > 0 && duration % 60 === 0) {
+          console.log(`[Billing] Processing recurring billing at ${duration}s`);
+          processRecurringBilling();
+      }
+  }, [duration, hasInitialBilling]);
+
+  // ── NOUVEAU : Fonctions de billing séparées ──────────────────────────────
+  const processInitialBilling = async () => {
       const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+      
       if (success) {
+          setHasInitialBilling(true);
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
-          notify(`- ${COST_PER_MINUTE} Crédits`, "info");
+          notify(`-${COST_PER_MINUTE} Crédits (démarrage)`, "info");
+          console.log('[Billing] ✅ Initial billing successful');
       } else {
-          notify("Crédits épuisés ! Fin de l'appel.", "error");
+          notify("Crédits insuffisants ! Fin de l'appel.", "error");
+          console.error('[Billing] ❌ Initial billing failed - hanging up');
           handleHangup();
       }
   };
 
+  const processRecurringBilling = async () => {
+      const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+      
+      if (success) {
+          const updatedUser = await storageService.getUserById(user.id);
+          if (updatedUser) onUpdateUser(updatedUser);
+          notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
+          console.log('[Billing] ✅ Recurring billing successful');
+      } else {
+          notify("Crédits épuisés ! Fin de l'appel.", "error");
+          console.error('[Billing] ❌ Recurring billing failed - hanging up');
+          handleHangup();
+      }
+  };
+
+  // ── NOUVEAU : Fonction pour changer de voix ──────────────────────────────
+  const handleVoiceChange = (voiceId: string) => {
+      setSelectedVoice(voiceId);
+      localStorage.setItem('teachermada_preferred_voice', voiceId);
+      notify(`Voix changée : ${AVAILABLE_VOICES.find(v => v.id === voiceId)?.name}`, 'success');
+      setShowVoiceSelector(false);
+      
+      // Note : La voix sera appliquée au prochain appel
+      // Pour changer en direct, il faudrait reconnecter la session
+  };
+
   const startSession = async () => {
+      // Vérifier crédits minimum
       if (!(await storageService.canRequest(user.id, COST_PER_MINUTE))) {
           notify(`Il faut ${COST_PER_MINUTE} crédits minimum pour démarrer.`, "error");
           onShowPayment();
@@ -165,28 +244,185 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
               const client = new GoogleGenAI({ apiKey });
               
-              // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
+              // ── NOUVEAU : PROMPT SYSTÈME AMÉLIORÉ ────────────────────────
+              const targetLang = user.preferences?.targetLanguage || 'English';
+              const userLevel = user.preferences?.level || 'Beginner';
+              
               const sysPrompt = `
-              IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
-              CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
-              
-              AUDIO INSTRUCTIONS:
-              - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
-              - Use a warm, patient, and encouraging tone.
-              
-              LANGUAGE RULES:
-              1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
-              2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
-              
-              CORRECTION PROTOCOL (CRITICAL):
-              When the user makes a mistake (grammar, pronunciation, structure):
-              1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
-              2. **✅ CORRECT**: Clearly state the correct version of the phrase.
-              3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
-              
-              GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
-              
-              START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
+═══════════════════════════════════════════════════════════════
+🎓 TEACHERMADA - PROFESSIONAL LANGUAGE TEACHER
+═══════════════════════════════════════════════════════════════
+
+IDENTITY:
+You are "TeacherMada", an expert ${targetLang} teacher with 30+ years of experience.
+You specialize in immersive, conversational learning with gentle error correction.
+
+STUDENT PROFILE:
+- Language: ${targetLang}
+- Level: ${userLevel}
+- Learning Style: Audio-first, conversational practice
+
+═══════════════════════════════════════════════════════════════
+📢 AUDIO & SPEECH INSTRUCTIONS
+═══════════════════════════════════════════════════════════════
+
+VOICE QUALITY:
+✓ Speak SLOWLY and CLEARLY - articulate every syllable
+✓ Use natural pauses between sentences (1-2 seconds)
+✓ Warm, encouraging, patient tone at all times
+✓ Slightly slower pace for Beginner/Intermediate levels
+✓ Normal conversational pace for Advanced
+
+AUDIO TECHNIQUES:
+✓ Emphasize KEY WORDS for clarity
+✓ Use pitch variation to maintain engagement
+✓ Repeat important phrases naturally
+✓ Ask "Did you understand?" after complex explanations
+
+═══════════════════════════════════════════════════════════════
+🌍 LANGUAGE IMMERSION RULES
+═══════════════════════════════════════════════════════════════
+
+PRIMARY RULE:
+→ Speak 95% in ${targetLang}
+→ ONLY use French if:
+   • Student explicitly asks "Comment dit-on...?"
+   • Student is completely stuck after 2-3 attempts
+   • Explaining complex grammar concepts
+
+LANGUAGE SCAFFOLDING:
+→ Beginner: Use simple sentences, common words, slower pace
+→ Intermediate: Mix simple and complex structures, introduce idioms
+→ Advanced: Natural conversation, complex topics, cultural nuances
+
+═══════════════════════════════════════════════════════════════
+✅ ERROR CORRECTION PROTOCOL (CRITICAL)
+═══════════════════════════════════════════════════════════════
+
+When student makes a mistake:
+
+STEP 1 - POSITIVE REINFORCEMENT (Always start here)
+   Examples:
+   • "Good effort!" / "I like your thinking!"
+   • "You're on the right track!"
+   • "Almost perfect!"
+
+STEP 2 - GENTLE CORRECTION (Clear but kind)
+   Format: "We say: [CORRECT PHRASE]"
+   Examples:
+   • "We say: 'I am going' not 'I go'"
+   • "The correct way is: 'She has been'"
+   
+STEP 3 - REPEAT REQUEST (Essential for learning)
+   • "Can you try saying: [CORRECT PHRASE]?"
+   • "Let's practice together: [CORRECT PHRASE]"
+   
+STEP 4 - BRIEF EXPLANATION (Only if needed)
+   • Keep it under 15 words
+   • Focus on the rule, not the theory
+   Example: "We use 'am going' for actions happening now"
+
+NEVER:
+✗ Say "No" or "Wrong" directly
+✗ Interrupt mid-sentence
+✗ Overcorrect minor mistakes (focus on major errors)
+✗ Give long grammatical explanations
+
+═══════════════════════════════════════════════════════════════
+🎯 CONVERSATION FLOW
+═══════════════════════════════════════════════════════════════
+
+SESSION STRUCTURE:
+
+1. GREETING (First 30s)
+   → Introduce yourself in ${targetLang}
+   → Ask: "How are you today?"
+   → Make student feel comfortable
+
+2. TOPIC INTRODUCTION (After student responds)
+   → Choose topics based on level:
+      • Beginner: Daily routines, hobbies, food, family
+      • Intermediate: Travel, work, opinions, past experiences
+      • Advanced: Abstract concepts, debates, cultural topics
+   
+3. ACTIVE CONVERSATION (Main session)
+   → Ask open-ended questions
+   → Listen actively to student responses
+   → Gently correct errors using protocol above
+   → Build on what student says (active listening)
+   → Introduce 2-3 new vocabulary words per minute
+   
+4. SILENCE HANDLING
+   → If student is silent for 5+ seconds:
+      "Take your time! What would you like to talk about?"
+   → If still silent:
+      "Should I ask you a question to get started?"
+
+═══════════════════════════════════════════════════════════════
+📚 TEACHING TECHNIQUES
+═══════════════════════════════════════════════════════════════
+
+VOCABULARY BUILDING:
+→ Introduce new words IN CONTEXT
+→ Use simple definitions in ${targetLang}
+→ Give 1-2 example sentences
+→ Ask student to use the word
+
+PRONUNCIATION HELP:
+→ Break difficult words into syllables
+→ Demonstrate correct pronunciation slowly
+→ Ask student to repeat 2-3 times
+→ Praise progress ("Much better!")
+
+ENGAGEMENT:
+→ Ask follow-up questions
+→ Share relevant cultural facts
+→ Use humor (appropriate for level)
+→ Celebrate small victories
+
+═══════════════════════════════════════════════════════════════
+🎓 LEVEL-SPECIFIC ADAPTATIONS
+═══════════════════════════════════════════════════════════════
+
+BEGINNER:
+• Use present tense primarily
+• Simple subject-verb-object sentences
+• High-frequency vocabulary (top 500 words)
+• Repeat key phrases naturally
+• Visual descriptions when possible
+
+INTERMEDIATE:
+• Mix tenses (past, present, future)
+• Compound sentences
+• Common idioms and expressions
+• Encourage longer responses
+• Introduce subjunctive/conditional
+
+ADVANCED:
+• All tenses and moods
+• Abstract discussions
+• Idiomatic expressions
+• Debate and opinion exchange
+• Cultural and literary references
+
+═══════════════════════════════════════════════════════════════
+⚡ QUICK REFERENCE
+═══════════════════════════════════════════════════════════════
+
+GOLDEN RULES:
+1. Always be encouraging
+2. Correct gently, not harshly
+3. Speak 95% ${targetLang}, 5% French
+4. Listen actively - build on student's words
+5. Make learning fun and low-stress
+6. You and TeacherMada are not an AI or Robots, we are human natural native
+
+YOUR GOAL:
+Build student's confidence and fluency through natural conversation,
+not through traditional classroom drilling.
+
+NOW: Start the session with a warm greeting in ${targetLang}!
+═══════════════════════════════════════════════════════════════
               `;
 
               const session = await client.live.connect({
@@ -195,7 +431,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       responseModalities: [Modality.AUDIO],
                       systemInstruction: { parts: [{ text: sysPrompt }] },
                       speechConfig: {
-                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+                          voiceConfig: { 
+                              prebuiltVoiceConfig: { 
+                                  voiceName: selectedVoice // ✅ Utilise la voix sélectionnée
+                              } 
+                          }
                       }
                   },
                   callbacks: {
@@ -203,7 +443,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           if (isMountedRef.current) {
                               setStatus('connected');
                               setSubStatus("En Ligne");
-                              // Trigger auto start handled by user speaking first or system prompt behavior
+                              console.log('[Session] ✅ Connected successfully');
                           }
                       },
                       onmessage: async (msg: any) => {
@@ -223,11 +463,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           }
                       },
                       onclose: () => {
-                          console.log("Session closed remote");
+                          console.log("[Session] Closed by server");
                           handleHangup();
                       },
                       onerror: (err) => {
-                          console.error("Session error", err);
+                          console.error("[Session] Error:", err);
                       }
                   }
               });
@@ -314,6 +554,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const handleHangup = () => {
+      if (initialBillingTimerRef.current) {
+          clearTimeout(initialBillingTimerRef.current);
+      }
+      
       if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
       if (processorRef.current) processorRef.current.disconnect();
       if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
@@ -325,7 +569,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (isMountedRef.current && status !== 'error') onClose();
   };
 
-  // UI SCALING
   const scale = 1 + (volume / 20); 
 
   return (
@@ -350,22 +593,76 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight drop-shadow-md">TeacherMada</h2>
               <div className="flex items-center gap-2 mt-2 text-indigo-400 font-medium">
                   <Globe className="w-4 h-4" />
-                  <span className="text-sm">Immersion {user.preferences?.targetLanguage} • {user.preferences?.level}</span>
+                  <span className="text-sm"> {user.preferences?.targetLanguage} — {user.preferences?.level}</span>
               </div>
               
-              {/* Timer Only */}
+              {/* ── NOUVEAU : Bouton sélection voix ────────────────────── */}
+              <button
+                  onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+                  disabled={status === 'connected'}
+                  className="mt-3 flex items-center gap-2 px-4 py-2 bg-slate-800/60 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all"
+              >
+                  <User className="w-3 h-3"/>
+                  Voix: {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.name}
+              </button>
+              
+              {/* Timer + Billing Info */}
               <div className="flex items-center gap-3 mt-4">
                   <p className="text-slate-500 font-mono text-xs tracking-widest bg-slate-900/80 px-3 py-1 rounded-lg border border-slate-800 flex items-center gap-2">
                       <Clock className="w-3 h-3"/>
                       {Math.floor(duration/60).toString().padStart(2,'0')}:{(duration%60).toString().padStart(2,'0')}
                   </p>
+                  {hasInitialBilling && (
+                      <p className="text-amber-400 font-mono text-xs tracking-widest bg-amber-900/20 px-3 py-1 rounded-lg border border-amber-800 flex items-center gap-2">
+                          <Coins className="w-3 h-3"/>
+                          -{COST_PER_MINUTE * (Math.floor(duration / 60) + 1)} crédits
+                      </p>
+                  )}
               </div>
           </div>
+
+          {/* ── NOUVEAU : Modal Sélection Voix ──────────────────────────── */}
+          {showVoiceSelector && status !== 'connected' && (
+              <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                  <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl">
+                      <h3 className="text-white font-black text-lg mb-4 flex items-center gap-2">
+                          <User className="w-5 h-5"/>
+                          Choisir la Voix
+                      </h3>
+                      <div className="grid grid-cols-2 gap-3 mb-6">
+                          {AVAILABLE_VOICES.map(voice => (
+                              <button
+                                  key={voice.id}
+                                  onClick={() => handleVoiceChange(voice.id)}
+                                  className={`p-4 rounded-2xl border-2 transition-all text-left ${
+                                      selectedVoice === voice.id
+                                          ? 'border-indigo-500 bg-indigo-500/20'
+                                          : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                                  }`}
+                              >
+                                  <div className="text-2xl mb-2">{voice.emoji}</div>
+                                  <div className="font-bold text-white text-sm">{voice.name}</div>
+                                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                                      {voice.gender === 'M' ? 'Masculin' : voice.gender === 'F' ? 'Féminin' : 'Neutre'}
+                                  </div>
+                                  <div className="text-xs text-slate-500">{voice.description}</div>
+                              </button>
+                          ))}
+                      </div>
+                      <button
+                          onClick={() => setShowVoiceSelector(false)}
+                          className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all"
+                      >
+                          Fermer
+                      </button>
+                  </div>
+              </div>
+          )}
 
           {/* Visualizer Central */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full mb-10">
               
-              {/* Effets d'Ondes Visuelles (User Speaking) - Concentric Circles */}
+              {/* Effets d'Ondes Visuelles (User Speaking) */}
               {!teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="absolute w-48 h-48 rounded-full border border-indigo-500/60 transition-transform duration-75 ease-out" 
@@ -379,7 +676,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   </div>
               )}
 
-              {/* Effets Pulsation (Teacher Speaking) - Glowing Aura */}
+              {/* Effets Pulsation (Teacher Speaking) */}
               {teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="absolute w-52 h-52 rounded-full bg-emerald-500/20 animate-ping"></div>
@@ -396,13 +693,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               }`}>
                   <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-32 h-32 object-contain drop-shadow-lg" alt="AI Teacher" />
                   
-                  {/* Status Indicator inside Avatar */}
                   <div className={`absolute bottom-4 right-4 w-7 h-7 rounded-full border-4 border-[#0F1422] flex items-center justify-center transition-colors ${teacherSpeaking ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
                       {teacherSpeaking ? <Activity className="w-3.5 h-3.5 text-white animate-bounce" /> : <Mic className="w-3.5 h-3.5 text-white" />}
                   </div>
               </div>
 
-              {/* Status Textuel Dynamique */}
+              {/* Status Textuel */}
               <div className="mt-16 h-10 flex items-center gap-3 px-6 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-300 shadow-xl">
                   {teacherSpeaking ? (
                       <>
@@ -434,7 +730,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               </div>
           )}
 
-          {/* Contrôles Glassmorphism */}
+          {/* Contrôles */}
           <div className="p-8 pb-12 flex items-center justify-center gap-8 relative z-10">
               <button 
                   onClick={() => setIsMuted(!isMuted)}
@@ -454,7 +750,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   <Phone className="w-10 h-10 text-white fill-current rotate-[135deg] group-hover:animate-pulse" />
               </button>
 
-              {/* Bouton Speaker fictif pour symétrie */}
               <div className="p-6 rounded-full bg-slate-800/40 text-slate-600 border border-slate-800/50 cursor-default">
                   <Volume2 className="w-6 h-6"/>
               </div>
