@@ -208,7 +208,17 @@ export const storageService = {
       // Cas spécial : email non confirmé → auto-confirmation via RPC
       if (authError?.message?.toLowerCase().includes('email not confirmed')) {
         console.warn('[Login] Email non confirmé — tentative auto-confirmation...');
-        await supabase.rpc('admin_confirm_user_email', { p_email: email }).catch(() => {});
+
+try {
+  const { error: confirmError } = await supabase.rpc('admin_confirm_user_email', { p_email: email });
+  if (confirmError) {
+    console.warn('[Login] Auto-confirmation échouée:', confirmError.message);
+  }
+} catch (e) {
+  console.warn('[Login] Auto-confirmation exception:', e);
+}
+
+        
         // Retenter
         const { data: retry, error: retryErr } = await supabase.auth.signInWithPassword({ email, password });
         if (retryErr || !retry?.user) {
@@ -296,8 +306,17 @@ export const storageService = {
       if (!authData.user) return { success: false, error: 'Erreur lors de la création du compte.' };
 
       // Auto-confirmer l'email immédiatement
-      await supabase.rpc('admin_confirm_user_email', { p_email: finalEmail }).catch(() => {});
+      try {
+  const { error: confirmError } = await supabase.rpc('admin_confirm_user_email', { p_email: finalEmail });
+  if (confirmError) {
+    console.warn('[Register] Auto-confirmation échouée:', confirmError.message);
+  }
+} catch (e) {
+  console.warn('[Register] Auto-confirmation exception:', e);
+}
 
+
+      
       const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail);
       if (phoneNumber?.trim()) (payload as any).phone_number = phoneNumber.trim();
 
