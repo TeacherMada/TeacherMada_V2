@@ -766,10 +766,9 @@ const ChatInterface: React.FC<Props> = ({
       </footer>
     </div>
   );
-};
-
+//};
 //export default memo(ChatInterface);
-};
+  };
 
 const MemoizedChatInterface = memo(ChatInterface);
 
