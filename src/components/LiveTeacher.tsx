@@ -17,7 +17,7 @@ const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
 const COST_PER_MINUTE = 5;
-const INITIAL_BILLING_DELAY = 5000; // 5 secondes avant première facturation
+const INITIAL_BILLING_DELAY = 5000; // 5 secondes
 
 // --- VOIX DISPONIBLES ---
 interface VoiceOption {
@@ -37,7 +37,7 @@ const AVAILABLE_VOICES: VoiceOption[] = [
     { id: 'Zephyr', name: 'Zephyr', gender: 'N', description: 'Neutre et professionnelle', emoji: '🌬️' },
 ];
 
-// --- UTILS AUDIO (inchangés) ---
+// --- UTILS AUDIO ---
 const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     const binaryString = atob(base64);
     const len = binaryString.length;
@@ -98,13 +98,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
   
-  // ── NOUVEAU : Sélection de voix ──────────────────────────────────────────
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<string>(
       localStorage.getItem('teachermada_preferred_voice') || 'Kore'
   );
   
-  // ── NOUVEAU : Billing state ──────────────────────────────────────────────
   const [hasInitialBilling, setHasInitialBilling] = useState(false);
   const initialBillingTimerRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -126,7 +124,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       };
   }, []);
 
-  // --- TIMER ---
   useEffect(() => {
       let interval: any;
       if (status === 'connected') {
@@ -137,7 +134,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       return () => clearInterval(interval);
   }, [status]);
 
-  // ── NOUVEAU : Initial Billing (5s après connexion) ───────────────────────
   useEffect(() => {
       if (status === 'connected' && !hasInitialBilling) {
           console.log('[Billing] Scheduling initial billing in 5s...');
@@ -149,18 +145,53 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
   }, [status, hasInitialBilling]);
 
-  // ── NOUVEAU : Billing récurrent (chaque minute) ──────────────────────────
   useEffect(() => {
-      // Ne facturer QUE si :
-      // 1. Billing initial déjà fait
-      // 2. Durée est un multiple de 60s (et > 0)
       if (hasInitialBilling && duration > 0 && duration % 60 === 0) {
           console.log(`[Billing] Processing recurring billing at ${duration}s`);
           processRecurringBilling();
       }
   }, [duration, hasInitialBilling]);
 
-  // ── NOUVEAU : Fonctions de billing séparées ──────────────────────────────
+  // ── BILLING FUNCTIONS ──
+  const processInitialBilling = async () => {
+    console.log('[Billing] ━━━━━━ INITIAL BILLING START ━━━━━━');
+    console.log('[Billing] User ID:', user.id);
+    console.log('[Billing] Amount:', COST_PER_MINUTE);
+    console.log('[Billing] Current credits:', user.credits);
+    
+    try {
+        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+        console.log('[Billing] deductCredits returned:', success);
+        
+        if (success) {
+            setHasInitialBilling(true);
+            console.log('[Billing] hasInitialBilling set to true');
+            
+            const updatedUser = await storageService.getUserById(user.id);
+            console.log('[Billing] Updated user:', updatedUser);
+            
+            if (updatedUser) {
+                onUpdateUser(updatedUser);
+                console.log('[Billing] User updated in parent component');
+            }
+            
+            notify(`-${COST_PER_MINUTE} Crédits (démarrage)`, "info");
+            console.log('[Billing] ✅ Initial billing SUCCESS');
+            console.log('[Billing] New credits:', updatedUser?.credits);
+        } else {
+            console.error('[Billing] ❌ deductCredits returned FALSE');
+            notify("Crédits insuffisants ! Fin de l'appel.", "error");
+            handleHangup();
+        }
+    } catch (error) {
+        console.error('[Billing] ❌ Exception during initial billing:', error);
+        notify("Erreur lors de la déduction des crédits.", "error");
+        handleHangup();
+    }
+    
+    console.log('[Billing] ━━━━━━ INITIAL BILLING END ━━━━━━');
+  };
+
   const processRecurringBilling = async () => {
     console.log('[Billing] ━━━━━━ RECURRING BILLING START ━━━━━━');
     console.log('[Billing] Duration:', duration, 'seconds');
@@ -194,60 +225,16 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
     }
     
     console.log('[Billing] ━━━━━━ RECURRING BILLING END ━━━━━━');
-};
+  };
 
-  
-
-  const processRecurringBilling = async () => {
-    console.log('[Billing] ━━━━━━ RECURRING BILLING START ━━━━━━');
-    console.log('[Billing] Duration:', duration, 'seconds');
-    console.log('[Billing] User ID:', user.id);
-    console.log('[Billing] Amount:', COST_PER_MINUTE);
-    
-    try {
-        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-        console.log('[Billing] deductCredits returned:', success);
-        
-        if (success) {
-            const updatedUser = await storageService.getUserById(user.id);
-            console.log('[Billing] Updated user:', updatedUser);
-            
-            if (updatedUser) {
-                onUpdateUser(updatedUser);
-            }
-            
-            notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
-            console.log('[Billing] ✅ Recurring billing SUCCESS');
-            console.log('[Billing] New credits:', updatedUser?.credits);
-        } else {
-            console.error('[Billing] ❌ deductCredits returned FALSE');
-            notify("Crédits épuisés ! Fin de l'appel.", "error");
-            handleHangup();
-        }
-    } catch (error) {
-        console.error('[Billing] ❌ Exception during recurring billing:', error);
-        notify("Erreur lors de la déduction des crédits.", "error");
-        handleHangup();
-    }
-    
-    console.log('[Billing] ━━━━━━ RECURRING BILLING END ━━━━━━');
-};
-
-  
-
-  // ── NOUVEAU : Fonction pour changer de voix ──────────────────────────────
   const handleVoiceChange = (voiceId: string) => {
       setSelectedVoice(voiceId);
       localStorage.setItem('teachermada_preferred_voice', voiceId);
       notify(`Voix changée : ${AVAILABLE_VOICES.find(v => v.id === voiceId)?.name}`, 'success');
       setShowVoiceSelector(false);
-      
-      // Note : La voix sera appliquée au prochain appel
-      // Pour changer en direct, il faudrait reconnecter la session
   };
 
   const startSession = async () => {
-      // Vérifier crédits minimum
       if (!(await storageService.canRequest(user.id, COST_PER_MINUTE))) {
           notify(`Il faut ${COST_PER_MINUTE} crédits minimum pour démarrer.`, "error");
           onShowPayment();
@@ -287,7 +274,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
               const client = new GoogleGenAI({ apiKey });
               
-              // ── NOUVEAU : PROMPT SYSTÈME AMÉLIORÉ ────────────────────────
               const targetLang = user.preferences?.targetLanguage || 'English';
               const userLevel = user.preferences?.level || 'Beginner';
               
@@ -458,7 +444,7 @@ GOLDEN RULES:
 3. Speak 95% ${targetLang}, 5% French
 4. Listen actively - build on student's words
 5. Make learning fun and low-stress
-6. You and TeacherMada are not an AI or Robots, we are profesor human natural nativ profesionnal
+6. You are a natural human professor, not an AI
 
 YOUR GOAL:
 Build student's confidence and fluency through natural conversation,
@@ -476,7 +462,7 @@ NOW: Start the session with a warm greeting in ${targetLang}!
                       speechConfig: {
                           voiceConfig: { 
                               prebuiltVoiceConfig: { 
-                                  voiceName: selectedVoice // ✅ Utilise la voix sélectionnée
+                                  voiceName: selectedVoice
                               } 
                           }
                       }
@@ -617,10 +603,8 @@ NOW: Start the session with a warm greeting in ${targetLang}!
   return (
       <div className="fixed inset-0 z-[150] bg-[#050505] flex flex-col font-sans overflow-hidden">
           
-          {/* Background Ambient Glow */}
           <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[150px] pointer-events-none transition-colors duration-1000 ${teacherSpeaking ? 'bg-emerald-900/40' : 'bg-indigo-900/30'}`}></div>
 
-          {/* Header */}
           <div className="p-8 pt-12 text-center relative z-10 flex flex-col items-center">
               <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border mb-6 transition-all shadow-lg ${
                   status === 'connected' 
@@ -636,19 +620,17 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight drop-shadow-md">TeacherMada</h2>
               <div className="flex items-center gap-2 mt-2 text-indigo-400 font-medium">
                   <Globe className="w-4 h-4" />
-                  <span className="text-sm"> {user.preferences?.targetLanguage} — {user.preferences?.level}</span>
+                  <span className="text-sm">{user.preferences?.targetLanguage} — {user.preferences?.level}</span>
               </div>
               
-              {/* ── NOUVEAU : Bouton sélection voix ────────────────────── */}
               <button
-    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
-    className="mt-3 flex items-center gap-2 px-4 py-2 bg-slate-800/60 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all"
->
-    <User className="w-3 h-3"/>
-    Voix: {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.name}
-</button>
+                  onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+                  className="mt-3 flex items-center gap-2 px-4 py-2 bg-slate-800/60 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all"
+              >
+                  <User className="w-3 h-3"/>
+                  Voix: {AVAILABLE_VOICES.find(v => v.id === selectedVoice)?.name}
+              </button>
               
-              {/* Timer + Billing Info */}
               <div className="flex items-center gap-3 mt-4">
                   <p className="text-slate-500 font-mono text-xs tracking-widest bg-slate-900/80 px-3 py-1 rounded-lg border border-slate-800 flex items-center gap-2">
                       <Clock className="w-3 h-3"/>
@@ -663,24 +645,21 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               </div>
           </div>
 
-          {/* ── NOUVEAU : Modal Sélection Voix ──────────────────────────── */}
-          {showVoiceSelector && status !== 'connected' && (
+          {showVoiceSelector && (
               <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                   <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl">
                       <h3 className="text-white font-black text-lg mb-4 flex items-center gap-2">
                           <User className="w-5 h-5"/>
                           Choisir la Voix
                       </h3>
-                    {/* ── NOUVEAU : Warning si appel en cours ────────────────────── */}
-{status === 'connected' && (
-    <div className="mb-4 p-3 bg-amber-900/20 border border-amber-600/30 rounded-xl">
-        <p className="text-xs text-amber-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4"/>
-            La voix sera appliquée au <strong>prochain appel</strong>
-        </p>
-    </div>
-)}
-                    
+                      {status === 'connected' && (
+                          <div className="mb-4 p-3 bg-amber-900/20 border border-amber-600/30 rounded-xl">
+                              <p className="text-xs text-amber-300 flex items-center gap-2">
+                                  <AlertCircle className="w-4 h-4"/>
+                                  La voix sera appliquée au <strong>prochain appel</strong>
+                              </p>
+                          </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3 mb-6">
                           {AVAILABLE_VOICES.map(voice => (
                               <button
@@ -711,10 +690,8 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               </div>
           )}
 
-          {/* Visualizer Central */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full mb-10">
               
-              {/* Effets d'Ondes Visuelles (User Speaking) */}
               {!teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="absolute w-48 h-48 rounded-full border border-indigo-500/60 transition-transform duration-75 ease-out" 
@@ -728,7 +705,6 @@ NOW: Start the session with a warm greeting in ${targetLang}!
                   </div>
               )}
 
-              {/* Effets Pulsation (Teacher Speaking) */}
               {teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="absolute w-52 h-52 rounded-full bg-emerald-500/20 animate-ping"></div>
@@ -737,7 +713,6 @@ NOW: Start the session with a warm greeting in ${targetLang}!
                   </div>
               )}
 
-              {/* Avatar Central */}
               <div className={`relative z-20 w-48 h-48 rounded-full bg-[#0F1422] flex items-center justify-center transition-all duration-500 shadow-2xl ${
                   teacherSpeaking 
                   ? 'scale-110 border-4 border-emerald-500 shadow-[0_0_80px_rgba(16,185,129,0.4)]' 
@@ -750,7 +725,6 @@ NOW: Start the session with a warm greeting in ${targetLang}!
                   </div>
               </div>
 
-              {/* Status Textuel */}
               <div className="mt-16 h-10 flex items-center gap-3 px-6 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-300 shadow-xl">
                   {teacherSpeaking ? (
                       <>
@@ -768,7 +742,6 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               </div>
           </div>
 
-          {/* Erreur overlay */}
           {status === 'error' && (
               <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in">
                   <div className="bg-[#1E293B] p-8 rounded-3xl border border-red-500/30 text-center max-w-xs shadow-2xl">
@@ -782,7 +755,6 @@ NOW: Start the session with a warm greeting in ${targetLang}!
               </div>
           )}
 
-          {/* Contrôles */}
           <div className="p-8 pb-12 flex items-center justify-center gap-8 relative z-10">
               <button 
                   onClick={() => setIsMuted(!isMuted)}
