@@ -333,13 +333,22 @@ export async function* sendMessageStream(
 // ============================================================================
 // 3. TEXT-TO-SPEECH (AVEC CIRCUIT BREAKER)
 // ============================================================================
+// ============================================================================
+// 3. TEXT-TO-SPEECH — FIXED
+// ============================================================================
+
+// Cache en mémoire (évite de re-générer le même audio)
+const _ttsCache = new Map<string, ArrayBuffer>();
+const TTS_CACHE_MAX = 15;
+
 export const generateSpeech = async (
     text: string,
     voiceName: string = 'Kore',
     cost: number = CREDIT_COSTS.AUDIO_MESSAGE
 ): Promise<ArrayBuffer | null> => {
 
-    const user = await storageService.getCurrentUser();
+    // ✅ FIX: getLocalUser() synchrone → pas d'appel Supabase coûteux
+    const user = storageService.getLocalUser();
     if (!user) return null;
     if (!(await creditService.checkBalance(user.id, cost))) {
         console.warn('[TTS] Crédits insuffisants');
@@ -355,6 +364,14 @@ export const generateSpeech = async (
 
     if (!cleanText) return null;
 
+    // ✅ Cache TTS : même texte + même voix → réponse instantanée
+    const cacheKey = `${voiceName}:${cleanText.slice(0, 120)}`;
+    if (_ttsCache.has(cacheKey)) {
+        console.log('[TTS] 🎯 Cache hit — pas d\'appel API');
+        await creditService.deduct(user.id, cost);
+        return _ttsCache.get(cacheKey)!.slice(0); // copie du buffer
+    }
+
     const ttsBody = {
         contents: [{ parts: [{ text: cleanText }] }],
         generationConfig: {
@@ -368,7 +385,6 @@ export const generateSpeech = async (
     };
 
     try {
-        // ✅ UTILISER LE CIRCUIT BREAKER
         const result = await ttsCircuitBreaker.execute(async () => {
             for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
@@ -377,23 +393,23 @@ export const generateSpeech = async (
                     const key = nextKey();
                     if (!key) throw new Error('GEMINI_API_KEY manquant');
 
-                    const ctrl = new AbortController();
-                    const timer = setTimeout(() => ctrl.abort(), 30_000);
+                    const ctrl  = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 35_000); // 35s timeout
 
                     const res = await fetch(
                         `${BASE_URL}/${AUDIO_MODEL}:generateContent?key=${key}`,
                         {
-                            method: 'POST',
+                            method:  'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(ttsBody),
-                            signal: ctrl.signal,
+                            body:    JSON.stringify(ttsBody),
+                            signal:  ctrl.signal,
                         }
                     );
                     clearTimeout(timer);
 
                     if (res.status === 429) {
                         console.warn(`[TTS] Rate limit (tentative ${attempt})`);
-                        if (attempt < 3) await sleep(attempt * 1000);
+                        if (attempt < 3) await sleep(attempt * 1500);
                         continue;
                     }
 
@@ -407,55 +423,52 @@ export const generateSpeech = async (
                         throw new Error(`TTS HTTP ${res.status}: ${errText.slice(0, 150)}`);
                     }
 
-                    const data = await res.json();
+                    const data       = await res.json();
                     const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
                     if (!base64Audio) {
-                        throw new Error('Pas de données audio dans la réponse Gemini');
+                        throw new Error('Pas de données audio dans la réponse Gemini TTS');
                     }
 
+                    // Décoder Base64 → ArrayBuffer
                     const binaryString = atob(base64Audio);
-                    const bytes = new Uint8Array(binaryString.length);
+                    const bytes        = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
 
-                    console.log(`[TTS] ✅ Succès tentative ${attempt}`);
+                    console.log(`[TTS] ✅ Succès tentative ${attempt} (${bytes.length} bytes)`);
                     return bytes.buffer as ArrayBuffer;
 
                 } catch (e: any) {
+                    if (e.name === 'AbortError') {
+                        console.warn(`[TTS] Timeout tentative ${attempt}`);
+                    }
                     if (attempt === 3) throw e;
-                    await sleep(attempt * 1000);
+                    await sleep(attempt * 1500);
                 }
             }
             throw new Error('TTS échec après 3 tentatives');
         });
+
+        // Mettre en cache (LRU)
+        if (_ttsCache.size >= TTS_CACHE_MAX) {
+            _ttsCache.delete(_ttsCache.keys().next().value!);
+        }
+        _ttsCache.set(cacheKey, result);
 
         await creditService.deduct(user.id, cost);
         return result;
 
     } catch (e: any) {
         errorService.logError(e, {
-            context: 'Gemini:TTS',
+            context:  'Gemini:TTS',
             severity: 'medium',
-            userId: user.id,
+            userId:   user.id,
         });
         return null;
     }
 };
-
-// ============================================================================
-// 4. VOCABULAIRE
-// ============================================================================
-export const extractVocabulary = async (history: ChatMessage[]): Promise<any[]> => {
-  const user = await storageService.getCurrentUser();
-  if (!user) return [];
-
-  const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-  const prompt = `Extrais 3 à 5 mots-clés vocabulaire de cette conversation.
-Réponds UNIQUEMENT en JSON array: [{"word":"...","translation":"...","example":"..."}]
-
-Conversation:\n${context}`;
 
   try {
     const data = await callGemini(TEXT_MODEL, buildBody(prompt, {
