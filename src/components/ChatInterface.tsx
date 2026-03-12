@@ -5,8 +5,8 @@ import {
   ExamResult, Certificate, SmartNotification, UserWeakness
 } from "../types";
 import { toast } from "../components/Toaster";
-import { syncService } from "./syncService";
-
+//import { syncService } from "./syncService";
+import { syncService } from "../services/syncService";
 // ── Clés localStorage ─────────────────────────────────────────────────────────
 const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const SESSION_PREFIX    = 'tm_v3_session_';
@@ -792,11 +792,21 @@ export const storageService = {
       localStorage.removeItem(sessionKey);
       if (isSupabaseConfigured()) {
         // CORRECTION: Utilisation de .then().catch() au lieu de chaînage incorrect
-        supabase.from('learning_sessions').delete().eq('id', sessionKey)
-          .then(({ error }) => {
-            if (error) console.warn('[clearSession] Supabase delete error:', error.message);
-          })
-          .catch(error => console.warn('[clearSession] Exception:', error));
+        (async () => {
+  try {
+    const { error } = await supabase
+      .from('learning_sessions')
+      .delete()
+      .eq('id', sessionKey);
+
+    if (error) {
+      console.warn('[clearSession] Supabase delete error:', error.message);
+    }
+  } catch (error: any) {
+    console.warn('[clearSession] Exception:', error);
+  }
+})();
+        
       }
     } else {
       // Toutes les sessions de l'utilisateur
@@ -1197,3 +1207,5 @@ export const storageService = {
     return false;
   },
 };
+
+export default ChatInterface;
