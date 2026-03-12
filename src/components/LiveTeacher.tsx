@@ -33,7 +33,7 @@ interface LiveTeacherProps {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const LIVE_MODEL         = 'gemini-2.0-flash-live-001'; // modèle stable Live API
+const LIVE_MODEL         = 'gemini-2.5-flash-native-audio-preview-09-2025'; // modèle stable Live API
 const INPUT_SAMPLE_RATE  = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
 const COST_PER_MINUTE    = CREDIT_COSTS.VOICE_CALL_PER_MINUTE;
