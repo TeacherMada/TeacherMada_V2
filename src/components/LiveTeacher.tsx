@@ -3,6 +3,7 @@ import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Spar
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
+import { aiService } from '../services/aiService'
 
 interface LiveTeacherProps {
   user: UserProfile;
@@ -154,79 +155,67 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   // ── BILLING FUNCTIONS ──
   const processInitialBilling = async () => {
-    console.log('[Billing] ━━━━━━ INITIAL BILLING START ━━━━━━');
-    console.log('[Billing] User ID:', user.id);
-    console.log('[Billing] Amount:', COST_PER_MINUTE);
-    console.log('[Billing] Current credits:', user.credits);
-    
-    try {
-        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-        console.log('[Billing] deductCredits returned:', success);
-        
-        if (success) {
-            setHasInitialBilling(true);
-            console.log('[Billing] hasInitialBilling set to true');
-            
-            const updatedUser = await storageService.getUserById(user.id);
-            console.log('[Billing] Updated user:', updatedUser);
-            
-            if (updatedUser) {
-                onUpdateUser(updatedUser);
-                console.log('[Billing] User updated in parent component');
-            }
-            
-            notify(`-${COST_PER_MINUTE} Crédits (démarrage)`, "info");
-            console.log('[Billing] ✅ Initial billing SUCCESS');
-            console.log('[Billing] New credits:', updatedUser?.credits);
-        } else {
-            console.error('[Billing] ❌ deductCredits returned FALSE');
-            notify("Crédits insuffisants ! Fin de l'appel.", "error");
-            handleHangup();
-        }
-    } catch (error) {
-        console.error('[Billing] ❌ Exception during initial billing:', error);
-        notify("Erreur lors de la déduction des crédits.", "error");
-        handleHangup();
-    }
-    
-    console.log('[Billing] ━━━━━━ INITIAL BILLING END ━━━━━━');
-  };
+  console.log('[Billing] Processing initial billing (5 credits)')
+  console.log('[Billing] User ID:', user.id)
+  console.log('[Billing] Current credits:', user.credits)
 
-  const processRecurringBilling = async () => {
-    console.log('[Billing] ━━━━━━ RECURRING BILLING START ━━━━━━');
-    console.log('[Billing] Duration:', duration, 'seconds');
-    console.log('[Billing] User ID:', user.id);
-    console.log('[Billing] Amount:', COST_PER_MINUTE);
-    
-    try {
-        const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-        console.log('[Billing] deductCredits returned:', success);
-        
-        if (success) {
-            const updatedUser = await storageService.getUserById(user.id);
-            console.log('[Billing] Updated user:', updatedUser);
-            
-            if (updatedUser) {
-                onUpdateUser(updatedUser);
-            }
-            
-            notify(`-${COST_PER_MINUTE} Crédits (1 min)`, "info");
-            console.log('[Billing] ✅ Recurring billing SUCCESS');
-            console.log('[Billing] New credits:', updatedUser?.credits);
-        } else {
-            console.error('[Billing] ❌ deductCredits returned FALSE');
-            notify("Crédits épuisés ! Fin de l'appel.", "error");
-            handleHangup();
-        }
-    } catch (error) {
-        console.error('[Billing] ❌ Exception during recurring billing:', error);
-        notify("Erreur lors de la déduction des crédits.", "error");
-        handleHangup();
-    }
-    
-    console.log('[Billing] ━━━━━━ RECURRING BILLING END ━━━━━━');
-  };
+  try {
+    // Appeler Edge Function pour démarrer appel
+    const result = await aiService.startCall(user.id)
 
+    if (!result.success) {
+      console.log('[Billing] ❌ Initial billing FAILED:', result.error)
+      
+      // Raccrocher si crédits insuffisants
+      hangup()
+      
+      toast.error(result.error || 'Crédits insuffisants pour démarrer l\'appel')
+      return
+    }
+
+    console.log('[Billing] ✅ Initial billing SUCCESS')
+    console.log('[Billing] New credits:', result.balance)
+    
+    toast.success('Appel démarré (-5 crédits)')
+
+  } catch (error: any) {
+    console.error('[Billing] Exception:', error)
+    hangup()
+    toast.error('Erreur lors de la facturation')
+  }
+}
+  
+  // ID unique pour cet appel (généré au début de la session)
+const [callId] = useState(() => `call_${user.id}_${Date.now()}`)
+
+const processRecurringBilling = async () => {
+  console.log('[Billing] Processing recurring billing (5 credits)')
+  console.log('[Billing] Call ID:', callId)
+
+  try {
+    // Appeler Edge Function pour minute d'appel
+    const result = await aiService.deductCallMinute(user.id, callId)
+
+    if (!result.success) {
+      console.log('[Billing] ❌ Recurring billing FAILED:', result.error)
+      
+      // Raccrocher si plus de crédits
+      hangup()
+      
+      toast.error(result.error || 'Crédits insuffisants')
+      return
+    }
+
+    console.log('[Billing] ✅ Recurring billing SUCCESS')
+    console.log('[Billing] New credits:', result.balance)
+
+  } catch (error: any) {
+    console.error('[Billing] Exception:', error)
+    hangup()
+    toast.error('Erreur lors de la facturation')
+  }
+}
+  
   const handleVoiceChange = (voiceId: string) => {
       setSelectedVoice(voiceId);
       localStorage.setItem('teachermada_preferred_voice', voiceId);
